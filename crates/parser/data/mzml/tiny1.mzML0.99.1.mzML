@@ -10,7 +10,7 @@
 		</fileContent>
 		<sourceFileList count="1">
 			<sourceFile id="1" sourceFileName="tiny1.RAW" sourceFileLocation="file://F:/data/Exp01" >
-				<cvParam cvLabel="MS" accession="MS:1000563" name="Xcalibur RAW file" value=""/>
+				<cvParam cvLabel="MS" accession="MS:1000563" name="Thermo RAW format" value=""/>
 				<cvParam cvLabel="MS" accession="MS:1000569" name="SHA-1" value="71be39fb2700ab2f3c8b2234b91274968b6899b1"/>
 			</sourceFile>
 		</sourceFileList>
@@ -85,20 +85,20 @@
 			<spectrum id="S19" scanNumber="19" msLevel="1">
 				<cvParam cvLabel="MS" accession="MS:1000580" name="MSn spectrum" value=""/>
 				<spectrumDescription>
-					<cvParam cvLabel="MS" accession="MS:1000127" name="centroid mass spectrum" value=""/>
-					<cvParam cvLabel="MS" accession="MS:1000528" name="lowest m/z value" value="400.39"/>
-					<cvParam cvLabel="MS" accession="MS:1000527" name="highest m/z value" value="1795.56"/>
+					<cvParam cvLabel="MS" accession="MS:1000127" name="centroid spectrum" value=""/>
+					<cvParam cvLabel="MS" accession="MS:1000528" name="lowest observed m/z" value="400.39"/>
+					<cvParam cvLabel="MS" accession="MS:1000527" name="highest observed m/z" value="1795.56"/>
 					<cvParam cvLabel="MS" accession="MS:1000504" name="base peak m/z" value="445.347"/>
 					<cvParam cvLabel="MS" accession="MS:1000505" name="base peak intensity" value="120053"/>
 					<cvParam cvLabel="MS" accession="MS:1000285" name="total ion current" value="1.66755e+007"/>
 					<scan instrumentRef="LCQ Deca">
 						<paramGroupRef ref="CommonMS1SpectrumParams"/>
-						<cvParam cvLabel="MS" accession="MS:1000016" name="scan time" value="5.890500" unitAccession="MS:1000038" unitName="minute"/>
+						<cvParam cvLabel="MS" accession="MS:1000016" name="scan start time" value="5.890500" unitAccession="MS:1000038" unitName="minute"/>
 						<cvParam cvLabel="MS" accession="MS:1000512" name="filter string" value="+ c NSI Full ms [ 400.00-1800.00]"/>
 						<selectionWindowList count="1">
 							<selectionWindow>
-								<cvParam cvLabel="MS" accession="MS:1000501" name="scan m/z lower limit" value="400.000000"/>
-								<cvParam cvLabel="MS" accession="MS:1000500" name="scan m/z upper limit" value="1800.000000"/>
+								<cvParam cvLabel="MS" accession="MS:1000501" name="scan window lower limit" value="400.000000"/>
+								<cvParam cvLabel="MS" accession="MS:1000500" name="scan window upper limit" value="1800.000000"/>
 							</selectionWindow>
 						</selectionWindowList>
 					</scan>
@@ -119,9 +119,9 @@
 			<spectrum id="S20" scanNumber="20" msLevel="2">
 				<cvParam cvLabel="MS" accession="MS:1000580" name="MSn spectrum" value=""/>
 				<spectrumDescription>
-					<cvParam cvLabel="MS" accession="MS:1000127" name="centroid mass spectrum" value=""/>
-					<cvParam cvLabel="MS" accession="MS:1000528" name="lowest m/z value" value="320.39"/>
-					<cvParam cvLabel="MS" accession="MS:1000527" name="highest m/z value" value="1003.56"/>
+					<cvParam cvLabel="MS" accession="MS:1000127" name="centroid spectrum" value=""/>
+					<cvParam cvLabel="MS" accession="MS:1000528" name="lowest observed m/z" value="320.39"/>
+					<cvParam cvLabel="MS" accession="MS:1000527" name="highest observed m/z" value="1003.56"/>
 					<cvParam cvLabel="MS" accession="MS:1000504" name="base peak m/z" value="456.347"/>
 					<cvParam cvLabel="MS" accession="MS:1000505" name="base peak intensity" value="23433"/>
 					<cvParam cvLabel="MS" accession="MS:1000285" name="total ion current" value="1.66755e+007"/>
@@ -139,12 +139,12 @@
 					</precursorList>
 					<scan instrumentRef="LCQ Deca">
 						<paramGroupRef ref="CommonMS2SpectrumParams"/>
-						<cvParam cvLabel="MS" accession="MS:1000016" name="scan time" value="5.990500" unitAccession="MS:1000038" unitName="minute"/>
+						<cvParam cvLabel="MS" accession="MS:1000016" name="scan start time" value="5.990500" unitAccession="MS:1000038" unitName="minute"/>
 						<cvParam cvLabel="MS" accession="MS:1000512" name="filter string" value="+ c d Full ms2  445.35@cid35.00 [ 110.00-905.00]"/>
 						<selectionWindowList count="1">
 							<selectionWindow>
-								<cvParam cvLabel="MS" accession="MS:1000501" name="scan m/z lower limit" value="110.000000"/>
-								<cvParam cvLabel="MS" accession="MS:1000500" name="scan m/z upper limit" value="905.000000"/>
+								<cvParam cvLabel="MS" accession="MS:1000501" name="scan window lower limit" value="110.000000"/>
+								<cvParam cvLabel="MS" accession="MS:1000500" name="scan window upper limit" value="905.000000"/>
 							</selectionWindow>
 						</selectionWindowList>
 					</scan>
