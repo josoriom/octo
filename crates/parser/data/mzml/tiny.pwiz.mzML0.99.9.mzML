@@ -121,7 +121,7 @@
               <binary>AAAAAAAALkAAAAAAAAAsQAAAAAAAACpAAAAAAAAAKEAAAAAAAAAmQAAAAAAAACRAAAAAAAAAIkAAAAAAAAAgQAAAAAAAABxAAAAAAAAAGEAAAAAAAAAUQAAAAAAAABBAAAAAAAAACEAAAAAAAAAAQAAAAAAAAPA/</binary>
             </binaryDataArray>
           </binaryDataArrayList>
-          </spectrum>
+        </spectrum>
         <spectrum index="1" id="S20" nativeID="20" defaultArrayLength="10">
           <cvParam cvRef="MS" accession="MS:1000580" name="MSn spectrum" value=""/>
           <cvParam cvRef="MS" accession="MS:1000511" name="ms level" value="2"/>

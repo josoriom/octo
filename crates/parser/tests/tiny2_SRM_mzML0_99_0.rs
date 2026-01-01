@@ -407,7 +407,7 @@ fn tiny2_srm_mzml0_99_0_spectrum_s101() {
         "MS:1000045",
         "MS",
         26.0,
-        Some("Electron Volt"),
+        Some("electron volt"),
     );
 
     // scan
@@ -637,7 +637,7 @@ fn tiny2_srm_mzml0_99_0_spectrum_s102() {
         "MS:1000045",
         "MS",
         35.0,
-        Some("Electron Volt"),
+        Some("electron volt"),
     );
 
     // scan

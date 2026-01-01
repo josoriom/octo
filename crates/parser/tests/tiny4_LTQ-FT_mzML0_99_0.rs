@@ -658,7 +658,7 @@ fn tiny1_mzml0_99_0_spectrum_s20() {
         "MS:1000045",
         "MS",
         35.0,
-        Some("Electron Volt"),
+        Some("electron volt"),
     );
 
     // scan
