@@ -11,7 +11,7 @@
 		</fileContent>
 		<sourceFileList count="1">
 			<sourceFile id="1" sourceFileName="tiny2_SRM.RAW" sourceFileLocation="file://F:/data/Exp01" >
-				<cvParam cvLabel="MS" accession="MS:1000563" name="Xcalibur RAW file" value=""/>
+				<cvParam cvLabel="MS" accession="MS:1000563" name="Thermo RAW format" value=""/>
 				<cvParam cvLabel="MS" accession="MS:1000569" name="SHA-1" value="71be39fb2700ab2f3c8b2234b91274968b6899b1"/>
 			</sourceFile>
 		</sourceFileList>
@@ -99,23 +99,23 @@
 							</ionSelection>
 							<activation>
 								<cvParam cvLabel="MS" accession="MS:1000133" name="collision-induced dissociation" value=""/>
-								<cvParam cvLabel="MS" accession="MS:1000045" name="collision energy" value="26.00" unitAccession="MS:1000137" unitName="Electron Volt"/>
+								<cvParam cvLabel="MS" accession="MS:1000045" name="collision energy" value="26.00" unitAccession="MS:1000137" unitName="electron volt"/>
 							</activation>
 						</precursor>
 					</precursorList>
 					<scan instrumentRef="TSQ Quantum Ultra">
 						<paramGroupRef ref="CommonSRMScanParams"/>
-						<cvParam cvLabel="MS" accession="MS:1000016" name="scan time" value="5.890500" unitAccession="MS:1000038" unitName="minute"/>
+						<cvParam cvLabel="MS" accession="MS:1000016" name="scan start time" value="5.890500" unitAccession="MS:1000038" unitName="minute"/>
 						<cvParam cvLabel="MS" accession="MS:1000512" name="filter string" value="+ c ESI sid=8 SRM ms2 445.34@cid26.00 [515.12-525.14,672.55-672.57]"/>
 						<selectionWindowList count="2">
 							<selectionWindow>
-								<cvParam cvLabel="MS" accession="MS:1000501" name="scan m/z lower limit" value="525.12"/>
-								<cvParam cvLabel="MS" accession="MS:1000500" name="scan m/z upper limit" value="525.14"/>
+								<cvParam cvLabel="MS" accession="MS:1000501" name="scan window lower limit" value="525.12"/>
+								<cvParam cvLabel="MS" accession="MS:1000500" name="scan window upper limit" value="525.14"/>
 								<cvParam cvLabel="MS" accession="MS:1000502" name="dwell time" value="0.07" unitAccession="MS:1000039" unitName="second"/>
 							</selectionWindow>
 							<selectionWindow>
-								<cvParam cvLabel="MS" accession="MS:1000501" name="scan m/z lower limit" value="672.55"/>
-								<cvParam cvLabel="MS" accession="MS:1000500" name="scan m/z upper limit" value="672.57"/>
+								<cvParam cvLabel="MS" accession="MS:1000501" name="scan window lower limit" value="672.55"/>
+								<cvParam cvLabel="MS" accession="MS:1000500" name="scan window upper limit" value="672.57"/>
 								<cvParam cvLabel="MS" accession="MS:1000502" name="dwell time" value="0.07" unitAccession="MS:1000039" unitName="second"/>
 							</selectionWindow>
 						</selectionWindowList>
@@ -146,18 +146,18 @@
 							</ionSelection>
 							<activation>
 								<cvParam cvLabel="MS" accession="MS:1000133" name="collision-induced dissociation" value=""/>
-								<cvParam cvLabel="MS" accession="MS:1000045" name="collision energy" value="35.00" unitAccession="MS:1000137" unitName="Electron Volt"/>
+								<cvParam cvLabel="MS" accession="MS:1000045" name="collision energy" value="35.00" unitAccession="MS:1000137" unitName="electron volt"/>
 							</activation>
 						</precursor>
 					</precursorList>
 					<scan instrumentRef="TSQ Quantum Ultra">
 						<paramGroupRef ref="CommonMS2ScanParams"/>
-						<cvParam cvLabel="MS" accession="MS:1000016" name="scan time" value="5.990500" unitAccession="MS:1000038" unitName="minute"/>
+						<cvParam cvLabel="MS" accession="MS:1000016" name="scan start time" value="5.990500" unitAccession="MS:1000038" unitName="minute"/>
 						<cvParam cvLabel="MS" accession="MS:1000512" name="filter string" value="+ c d Full ms2  445.35@cid35.00 [ 110.00-905.00]"/>
 						<selectionWindowList count="1">
 							<selectionWindow>
-								<cvParam cvLabel="MS" accession="MS:1000501" name="scan m/z lower limit" value="110.000000"/>
-								<cvParam cvLabel="MS" accession="MS:1000500" name="scan m/z upper limit" value="905.000000"/>
+								<cvParam cvLabel="MS" accession="MS:1000501" name="scan window lower limit" value="110.000000"/>
+								<cvParam cvLabel="MS" accession="MS:1000500" name="scan window upper limit" value="905.000000"/>
 							</selectionWindow>
 						</selectionWindowList>
 					</scan>
