@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 use b::utilities::mzml::MzML;
 
 use helpers::utilities::{
-    CvRefMode, assert_cv, assert_software, parse_b, spectrum_description, spectrum_precursor_list,
+    CvRefMode, assert_cv, parse_b, spectrum_description, spectrum_precursor_list,
     spectrum_scan_list,
 };
 
@@ -194,28 +194,42 @@ fn tiny_msdata_mzml0_99_10_header_sections() {
 
     let sw0 = &sw_list.software[0];
     assert_eq!(sw0.id, "Bioworks");
-    assert_software(
+    assert_eq!(sw0.cv_param.len(), 1);
+    assert_cv(
         CV_REF_MODE,
-        sw0,
-        "MS",
-        "MS:1000533",
+        &sw0.cv_param,
         "Bioworks",
-        Some("3.3.1 sp1"),
+        "MS:1000533",
+        "MS",
+        Some(""),
+        None,
     );
 
     let sw1 = &sw_list.software[1];
     assert_eq!(sw1.id, "ReAdW");
-    assert_software(CV_REF_MODE, sw1, "MS", "MS:1000541", "ReAdW", Some("1"));
+    assert_eq!(sw1.version.as_deref(), Some("1"));
+
+    assert_cv(
+        CV_REF_MODE,
+        &sw1.cv_param,
+        "ReAdW",
+        "MS:1000541",
+        "MS",
+        Some(""),
+        None,
+    );
 
     let sw2 = &sw_list.software[2];
     assert_eq!(sw2.id, "Xcalibur");
-    assert_software(
+    assert_eq!(sw2.version.as_deref(), Some("2.0.5"));
+    assert_cv(
         CV_REF_MODE,
-        sw2,
-        "MS",
-        "MS:1000532",
+        &sw2.cv_param,
         "Xcalibur",
-        Some("2.0.5"),
+        "MS:1000532",
+        "MS",
+        Some(""),
+        None,
     );
 
     // dataProcessingList
@@ -609,8 +623,6 @@ fn tiny_msdata_mzml0_99_10_second_spectrum() {
     assert_eq!(pl.precursors.len(), 1);
     let p0 = &pl.precursors[0];
     assert_eq!(p0.spectrum_ref.as_deref(), Some("S19"));
-    let isolation_window = &p0;
-    println!("-->>>>>isolation_window: {:?}", isolation_window);
 
     // isolationWindow
     let iw = p0

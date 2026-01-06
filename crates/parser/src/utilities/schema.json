@@ -19,21 +19,46 @@
                             "ref": [
                                 "ref"
                             ]
+                        },
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {
+                            "ref": "required"
                         }
                     },
                     "cv_param": {
                         "self": [
                             "cvParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [
+                            "MS:1000127",
+                            "MS:1000128",
+                            "MS:1000235",
+                            "MS:1000322",
+                            "MS:1000325",
+                            "MS:1000326",
+                            "MS:1000328",
+                            "MS:1000341",
+                            "MS:1000524",
+                            "MS:1000525"
+                        ],
+                        "attributes_use": {}
                     },
                     "user_param": {
                         "self": [
                             "userParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {}
                     }
-                }
+                },
+                "use": "required",
+                "accessions": [],
+                "attributes_use": {}
             },
             "source_file_list": {
                 "self": [
@@ -54,12 +79,10 @@
                                 "id"
                             ],
                             "name": [
-                                "name",
-                                "sourceFileName"
+                                "name"
                             ],
                             "location": [
-                                "location",
-                                "sourceFileLocation"
+                                "location"
                             ]
                         },
                         "children": {
@@ -71,22 +94,70 @@
                                     "ref": [
                                         "ref"
                                     ]
+                                },
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "ref": "required"
                                 }
                             },
                             "cv_param": {
                                 "self": [
                                     "cvParam"
                                 ],
-                                "attributes": {}
+                                "attributes": {},
+                                "use": "optional",
+                                "accessions": [
+                                    "MS:1000768",
+                                    "MS:1000769",
+                                    "MS:1000770",
+                                    "MS:1000771",
+                                    "MS:1000772",
+                                    "MS:1000773",
+                                    "MS:1000774",
+                                    "MS:1000775",
+                                    "MS:1000776",
+                                    "MS:1000777",
+                                    "MS:1000824",
+                                    "MS:1000568",
+                                    "MS:1000569",
+                                    "MS:1000526",
+                                    "MS:1000562",
+                                    "MS:1000563",
+                                    "MS:1000564",
+                                    "MS:1000565",
+                                    "MS:1000566",
+                                    "MS:1000567",
+                                    "MS:1000584",
+                                    "MS:1000613",
+                                    "MS:1000614",
+                                    "MS:1000740"
+                                ],
+                                "attributes_use": {}
                             },
                             "user_param": {
                                 "self": [
                                     "userParam"
                                 ],
-                                "attributes": {}
+                                "attributes": {},
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {}
                             }
+                        },
+                        "use": "required",
+                        "accessions": [],
+                        "attributes_use": {
+                            "id": "required",
+                            "name": "required",
+                            "location": "required"
                         }
                     }
+                },
+                "use": "optional",
+                "accessions": [],
+                "attributes_use": {
+                    "count": "required"
                 }
             },
             "contact": {
@@ -103,23 +174,46 @@
                             "ref": [
                                 "ref"
                             ]
+                        },
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {
+                            "ref": "required"
                         }
                     },
                     "cv_param": {
                         "self": [
                             "cvParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {}
                     },
                     "user_param": {
                         "self": [
                             "userParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {}
                     }
-                }
+                },
+                "use": "optional",
+                "accessions": [
+                    "MS:1000586",
+                    "MS:1000587",
+                    "MS:1000588",
+                    "MS:1000589",
+                    "MS:1000590"
+                ],
+                "attributes_use": {}
             }
-        }
+        },
+        "use": "required",
+        "accessions": [],
+        "attributes_use": {}
     },
     "referenceable_param_group_list": {
         "self": [
@@ -145,16 +239,32 @@
                         "self": [
                             "cvParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {}
                     },
                     "user_param": {
                         "self": [
                             "userParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {}
                     }
+                },
+                "use": "required",
+                "accessions": [],
+                "attributes_use": {
+                    "id": "required"
                 }
             }
+        },
+        "use": "optional",
+        "accessions": [],
+        "attributes_use": {
+            "count": "required"
         }
     },
     "sample_list": {
@@ -188,27 +298,64 @@
                             "ref": [
                                 "ref"
                             ]
+                        },
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {
+                            "ref": "required"
                         }
                     },
                     "cv_param": {
                         "self": [
                             "cvParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {}
                     },
                     "user_param": {
                         "self": [
                             "userParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {}
                     }
+                },
+                "use": "required",
+                "accessions": [
+                    "GO:0005575",
+                    "BTO:0000000",
+                    "PATO:00001241",
+                    "MS:1000548",
+                    "MS:1000001",
+                    "MS:1000004",
+                    "MS:1000005",
+                    "MS:1000006",
+                    "MS:1000053",
+                    "MS:1000047",
+                    "MS:1000048",
+                    "MS:1000049",
+                    "MS:1000050",
+                    "MS:1000051",
+                    "MS:1000052"
+                ],
+                "attributes_use": {
+                    "id": "required",
+                    "name": "optional"
                 }
             }
+        },
+        "use": "optional",
+        "accessions": [],
+        "attributes_use": {
+            "count": "required"
         }
     },
     "instrument_list": {
         "self": [
-            "instrumentList",
             "instrumentConfigurationList"
         ],
         "attributes": {
@@ -217,9 +364,8 @@
             ]
         },
         "children": {
-            "instrument": {
+            "instrument_configuration": {
                 "self": [
-                    "instrument",
                     "instrumentConfiguration"
                 ],
                 "attributes": {
@@ -235,13 +381,51 @@
                         "self": [
                             "cvParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [
+                            "MS:1000031",
+                            "MS:1000032",
+                            "MS:1000139",
+                            "MS:1000140",
+                            "MS:1000141",
+                            "MS:1000142",
+                            "MS:1000143",
+                            "MS:1000144",
+                            "MS:1000145",
+                            "MS:1000146",
+                            "MS:1000147",
+                            "MS:1000148",
+                            "MS:1000216",
+                            "MS:1000221",
+                            "MS:1000236",
+                            "MS:1000246",
+                            "MS:1000275",
+                            "MS:1000281",
+                            "MS:1000286",
+                            "MS:1000300",
+                            "MS:1000304",
+                            "MS:1000307",
+                            "MS:1000308",
+                            "MS:1000309",
+                            "MS:1000310",
+                            "MS:1000311",
+                            "MS:1000319",
+                            "MS:1000487",
+                            "MS:1000496",
+                            "MS:1000529",
+                            "MS:1000597"
+                        ],
+                        "attributes_use": {}
                     },
                     "user_param": {
                         "self": [
                             "userParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {}
                     },
                     "referenceable_param_group_ref": {
                         "self": [
@@ -251,6 +435,11 @@
                             "ref": [
                                 "ref"
                             ]
+                        },
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {
+                            "ref": "required"
                         }
                     },
                     "component_list": {
@@ -281,20 +470,70 @@
                                             "ref": [
                                                 "ref"
                                             ]
+                                        },
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {
+                                            "ref": "required"
                                         }
                                     },
                                     "cv_param": {
                                         "self": [
                                             "cvParam"
                                         ],
-                                        "attributes": {}
+                                        "attributes": {},
+                                        "use": "optional",
+                                        "accessions": [
+                                            "MS:1000007",
+                                            "MS:1000008",
+                                            "MS:1000055",
+                                            "MS:1000056",
+                                            "MS:1000058",
+                                            "MS:1000059",
+                                            "MS:1000060",
+                                            "MS:1000061",
+                                            "MS:1000062",
+                                            "MS:1000063",
+                                            "MS:1000064",
+                                            "MS:1000065",
+                                            "MS:1000070",
+                                            "MS:1000071",
+                                            "MS:1000074",
+                                            "MS:1000075",
+                                            "MS:1000227",
+                                            "MS:1000239",
+                                            "MS:1000255",
+                                            "MS:1000257",
+                                            "MS:1000258",
+                                            "MS:1000259",
+                                            "MS:1000392",
+                                            "MS:1000482",
+                                            "MS:1000486",
+                                            "MS:1000843",
+                                            "MS:1000844",
+                                            "MS:1000845",
+                                            "MS:1000846",
+                                            "MS:1000847",
+                                            "MS:1000848",
+                                            "MS:1000849",
+                                            "MS:1000850"
+                                        ],
+                                        "attributes_use": {}
                                     },
                                     "user_param": {
                                         "self": [
                                             "userParam"
                                         ],
-                                        "attributes": {}
+                                        "attributes": {},
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {}
                                     }
+                                },
+                                "use": "required",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "order": "required"
                                 }
                             },
                             "analyzer": {
@@ -315,20 +554,55 @@
                                             "ref": [
                                                 "ref"
                                             ]
+                                        },
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {
+                                            "ref": "required"
                                         }
                                     },
                                     "cv_param": {
                                         "self": [
                                             "cvParam"
                                         ],
-                                        "attributes": {}
+                                        "attributes": {},
+                                        "use": "optional",
+                                        "accessions": [
+                                            "MS:1000014",
+                                            "MS:1000022",
+                                            "MS:1000024",
+                                            "MS:1000025",
+                                            "MS:1000078",
+                                            "MS:1000079",
+                                            "MS:1000080",
+                                            "MS:1000081",
+                                            "MS:1000082",
+                                            "MS:1000083",
+                                            "MS:1000084",
+                                            "MS:1000105",
+                                            "MS:1000106",
+                                            "MS:1000254",
+                                            "MS:1000284",
+                                            "MS:1000288",
+                                            "MS:1000443",
+                                            "MS:1000480"
+                                        ],
+                                        "attributes_use": {}
                                     },
                                     "user_param": {
                                         "self": [
                                             "userParam"
                                         ],
-                                        "attributes": {}
+                                        "attributes": {},
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {}
                                     }
+                                },
+                                "use": "required",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "order": "required"
                                 }
                             },
                             "detector": {
@@ -349,37 +623,95 @@
                                             "ref": [
                                                 "ref"
                                             ]
+                                        },
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {
+                                            "ref": "required"
                                         }
                                     },
                                     "cv_param": {
                                         "self": [
                                             "cvParam"
                                         ],
-                                        "attributes": {}
+                                        "attributes": {},
+                                        "use": "optional",
+                                        "accessions": [
+                                            "MS:1000026",
+                                            "MS:1000107",
+                                            "MS:1000108",
+                                            "MS:1000109",
+                                            "MS:1000110",
+                                            "MS:1000111",
+                                            "MS:1000112",
+                                            "MS:1000113",
+                                            "MS:1000114",
+                                            "MS:1000115",
+                                            "MS:1000116",
+                                            "MS:1000253",
+                                            "MS:1000624",
+                                            "MS:1000481",
+                                            "MS:1000028",
+                                            "MS:1000029",
+                                            "MS:1000027",
+                                            "MS:1000117",
+                                            "MS:1000118",
+                                            "MS:1000119",
+                                            "MS:1000120"
+                                        ],
+                                        "attributes_use": {}
                                     },
                                     "user_param": {
                                         "self": [
                                             "userParam"
                                         ],
-                                        "attributes": {}
+                                        "attributes": {},
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {}
                                     }
+                                },
+                                "use": "required",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "order": "required"
                                 }
                             }
+                        },
+                        "use": "required",
+                        "accessions": [],
+                        "attributes_use": {
+                            "count": "required"
                         }
                     },
                     "software_ref": {
                         "self": [
-                            "instrumentSoftwareRef",
                             "softwareRef"
                         ],
                         "attributes": {
                             "ref": [
                                 "ref"
                             ]
+                        },
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {
+                            "ref": "required"
                         }
                     }
+                },
+                "use": "required",
+                "accessions": [],
+                "attributes_use": {
+                    "id": "required",
+                    "scan_settings_ref": "optional"
                 }
             }
+        },
+        "use": "required",
+        "accessions": [],
+        "attributes_use": {
+            "count": "required"
         }
     },
     "software_list": {
@@ -423,16 +755,70 @@
                             "version": [
                                 "version"
                             ]
+                        },
+                        "use": "required",
+                        "accessions": [
+                            "MS:1000531",
+                            "MS:1000532",
+                            "MS:1000533",
+                            "MS:1000534",
+                            "MS:1000600",
+                            "MS:1000601",
+                            "MS:1000615"
+                        ],
+                        "attributes_use": {
+                            "cv_ref": "required",
+                            "accession": "required",
+                            "name": "required",
+                            "version": "required"
+                        }
+                    },
+                    "referenceable_param_group_ref": {
+                        "self": [
+                            "referenceableParamGroupRef"
+                        ],
+                        "attributes": {
+                            "ref": [
+                                "ref"
+                            ]
+                        },
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {
+                            "ref": "required"
                         }
                     },
                     "cv_param": {
                         "self": [
                             "cvParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {}
+                    },
+                    "user_param": {
+                        "self": [
+                            "userParam"
+                        ],
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {}
                     }
+                },
+                "use": "required",
+                "accessions": [],
+                "attributes_use": {
+                    "id": "required",
+                    "version": "required"
                 }
             }
+        },
+        "use": "required",
+        "accessions": [],
+        "attributes_use": {
+            "count": "required"
         }
     },
     "data_processing_list": {
@@ -479,24 +865,74 @@
                                     "ref": [
                                         "ref"
                                     ]
+                                },
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "ref": "required"
                                 }
                             },
                             "cv_param": {
                                 "self": [
                                     "cvParam"
                                 ],
-                                "attributes": {}
+                                "attributes": {},
+                                "use": "optional",
+                                "accessions": [
+                                    "MS:1000033",
+                                    "MS:1000034",
+                                    "MS:1000035",
+                                    "MS:1000452",
+                                    "MS:1000530",
+                                    "MS:1000543",
+                                    "MS:1000544",
+                                    "MS:1000545",
+                                    "MS:1000546",
+                                    "MS:1000592",
+                                    "MS:1000593",
+                                    "MS:1000594",
+                                    "MS:1000629",
+                                    "MS:1000630",
+                                    "MS:1000631",
+                                    "MS:1000741",
+                                    "MS:1000745",
+                                    "MS:1000746",
+                                    "MS:1000747",
+                                    "MS:1000787",
+                                    "MS:1000788"
+                                ],
+                                "attributes_use": {}
                             },
                             "user_param": {
                                 "self": [
                                     "userParam"
                                 ],
-                                "attributes": {}
+                                "attributes": {},
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {}
                             }
+                        },
+                        "use": "required",
+                        "accessions": [],
+                        "attributes_use": {
+                            "order": "required",
+                            "software_ref": "required"
                         }
                     }
+                },
+                "use": "required",
+                "accessions": [],
+                "attributes_use": {
+                    "id": "required",
+                    "software_ref": "optional"
                 }
             }
+        },
+        "use": "required",
+        "accessions": [],
+        "attributes_use": {
+            "count": "required"
         }
     },
     "scan_settings_list": {
@@ -532,19 +968,30 @@
                             "ref": [
                                 "ref"
                             ]
+                        },
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {
+                            "ref": "required"
                         }
                     },
                     "cv_param": {
                         "self": [
                             "cvParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {}
                     },
                     "user_param": {
                         "self": [
                             "userParam"
                         ],
-                        "attributes": {}
+                        "attributes": {},
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {}
                     },
                     "source_file_ref_list": {
                         "self": [
@@ -564,8 +1011,18 @@
                                     "ref": [
                                         "ref"
                                     ]
+                                },
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "ref": "required"
                                 }
                             }
+                        },
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {
+                            "count": "required"
                         }
                     },
                     "target_list": {
@@ -592,26 +1049,56 @@
                                             "ref": [
                                                 "ref"
                                             ]
+                                        },
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {
+                                            "ref": "required"
                                         }
                                     },
                                     "cv_param": {
                                         "self": [
                                             "cvParam"
                                         ],
-                                        "attributes": {}
+                                        "attributes": {},
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {}
                                     },
                                     "user_param": {
                                         "self": [
                                             "userParam"
                                         ],
-                                        "attributes": {}
+                                        "attributes": {},
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {}
                                     }
-                                }
+                                },
+                                "use": "required",
+                                "accessions": [],
+                                "attributes_use": {}
                             }
+                        },
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {
+                            "count": "required"
                         }
                     }
+                },
+                "use": "required",
+                "accessions": [],
+                "attributes_use": {
+                    "id": "required",
+                    "instrument_configuration_ref": "required"
                 }
             }
+        },
+        "use": "optional",
+        "accessions": [],
+        "attributes_use": {
+            "count": "required"
         }
     },
     "run": {
@@ -644,19 +1131,33 @@
                     "ref": [
                         "ref"
                     ]
+                },
+                "use": "optional",
+                "accessions": [],
+                "attributes_use": {
+                    "ref": "required"
                 }
             },
             "cv_param": {
                 "self": [
                     "cvParam"
                 ],
-                "attributes": {}
+                "attributes": {},
+                "use": "optional",
+                "accessions": [
+                    "MS:1000857",
+                    "MS:1000858"
+                ],
+                "attributes_use": {}
             },
             "user_param": {
                 "self": [
                     "userParam"
                 ],
-                "attributes": {}
+                "attributes": {},
+                "use": "optional",
+                "accessions": [],
+                "attributes_use": {}
             },
             "source_file_ref_list": {
                 "self": [
@@ -676,8 +1177,18 @@
                             "ref": [
                                 "ref"
                             ]
+                        },
+                        "use": "optional",
+                        "accessions": [],
+                        "attributes_use": {
+                            "ref": "required"
                         }
                     }
+                },
+                "use": "optional",
+                "accessions": [],
+                "attributes_use": {
+                    "count": "required"
                 }
             },
             "spectrum_list": {
@@ -704,14 +1215,11 @@
                             "index": [
                                 "index"
                             ],
-                            "scan_number": [
-                                "scanNumber"
+                            "native_id": [
+                                "nativeID"
                             ],
                             "default_array_length": [
                                 "defaultArrayLength"
-                            ],
-                            "native_id": [
-                                "nativeID"
                             ],
                             "data_processing_ref": [
                                 "dataProcessingRef"
@@ -721,352 +1229,72 @@
                             ],
                             "spot_id": [
                                 "spotID"
-                            ],
-                            "ms_level": [
-                                "msLevel"
                             ]
                         },
                         "children": {
                             "referenceable_param_group_ref": {
                                 "self": [
-                                    "referenceableParamGroupRef",
-                                    "paramGroupRef"
+                                    "referenceableParamGroupRef"
                                 ],
                                 "attributes": {
                                     "ref": [
                                         "ref"
                                     ]
+                                },
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "ref": "required"
                                 }
                             },
                             "cv_param": {
                                 "self": [
                                     "cvParam"
                                 ],
-                                "attributes": {}
+                                "attributes": {},
+                                "use": "optional",
+                                "accessions": [
+                                    "MS:1000465",
+                                    "MS:1000129",
+                                    "MS:1000130",
+                                    "MS:1000559",
+                                    "MS:1000322",
+                                    "MS:1000325",
+                                    "MS:1000326",
+                                    "MS:1000328",
+                                    "MS:1000341",
+                                    "MS:1000579",
+                                    "MS:1000580",
+                                    "MS:1000581",
+                                    "MS:1000582",
+                                    "MS:1000583",
+                                    "MS:1000789",
+                                    "MS:1000790",
+                                    "MS:1000525",
+                                    "MS:1000127",
+                                    "MS:1000128",
+                                    "MS:1000499",
+                                    "MS:1000285",
+                                    "MS:1000497",
+                                    "MS:1000504",
+                                    "MS:1000505",
+                                    "MS:1000511",
+                                    "MS:1000527",
+                                    "MS:1000528",
+                                    "MS:1000618",
+                                    "MS:1000619",
+                                    "MS:1000796"
+                                ],
+                                "attributes_use": {}
                             },
                             "user_param": {
                                 "self": [
                                     "userParam"
                                 ],
-                                "attributes": {}
-                            },
-                            "spectrum_description": {
-                                "self": [
-                                    "spectrumDescription"
-                                ],
                                 "attributes": {},
-                                "children": {
-                                    "referenceable_param_group_ref": {
-                                        "self": [
-                                            "referenceableParamGroupRef",
-                                            "paramGroupRef"
-                                        ],
-                                        "attributes": {
-                                            "ref": [
-                                                "ref"
-                                            ]
-                                        }
-                                    },
-                                    "cv_param": {
-                                        "self": [
-                                            "cvParam"
-                                        ],
-                                        "attributes": {}
-                                    },
-                                    "user_param": {
-                                        "self": [
-                                            "userParam"
-                                        ],
-                                        "attributes": {}
-                                    },
-                                    "scan_list": {
-                                        "self": [
-                                            "scanList"
-                                        ],
-                                        "attributes": {
-                                            "count": [
-                                                "count"
-                                            ]
-                                        },
-                                        "children": {
-                                            "scan": {
-                                                "self": [
-                                                    "scan"
-                                                ],
-                                                "attributes": {
-                                                    "instrument_configuration_ref": [
-                                                        "instrumentConfigurationRef",
-                                                        "instrumentRef"
-                                                    ],
-                                                    "external_spectrum_id": [
-                                                        "externalSpectrumID"
-                                                    ],
-                                                    "source_file_ref": [
-                                                        "sourceFileRef"
-                                                    ],
-                                                    "spectrum_ref": [
-                                                        "spectrumRef"
-                                                    ]
-                                                },
-                                                "children": {
-                                                    "referenceable_param_group_ref": {
-                                                        "self": [
-                                                            "referenceableParamGroupRef",
-                                                            "paramGroupRef"
-                                                        ],
-                                                        "attributes": {
-                                                            "ref": [
-                                                                "ref"
-                                                            ]
-                                                        }
-                                                    },
-                                                    "cv_param": {
-                                                        "self": [
-                                                            "cvParam"
-                                                        ],
-                                                        "attributes": {}
-                                                    },
-                                                    "user_param": {
-                                                        "self": [
-                                                            "userParam"
-                                                        ],
-                                                        "attributes": {}
-                                                    },
-                                                    "scan_window_list": {
-                                                        "self": [
-                                                            "scanWindowList",
-                                                            "selectionWindowList"
-                                                        ],
-                                                        "attributes": {
-                                                            "count": [
-                                                                "count"
-                                                            ]
-                                                        },
-                                                        "children": {
-                                                            "scan_window": {
-                                                                "self": [
-                                                                    "scanWindow",
-                                                                    "selectionWindow"
-                                                                ],
-                                                                "attributes": {},
-                                                                "children": {
-                                                                    "cv_param": {
-                                                                        "self": [
-                                                                            "cvParam"
-                                                                        ],
-                                                                        "attributes": {}
-                                                                    },
-                                                                    "user_param": {
-                                                                        "self": [
-                                                                            "userParam"
-                                                                        ],
-                                                                        "attributes": {}
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    },
-                                    "precursor_list": {
-                                        "self": [
-                                            "precursorList"
-                                        ],
-                                        "attributes": {
-                                            "count": [
-                                                "count"
-                                            ]
-                                        },
-                                        "children": {
-                                            "precursor": {
-                                                "self": [
-                                                    "precursor"
-                                                ],
-                                                "attributes": {
-                                                    "spectrum_ref": [
-                                                        "spectrumRef"
-                                                    ],
-                                                    "source_file_ref": [
-                                                        "sourceFileRef"
-                                                    ],
-                                                    "external_spectrum_id": [
-                                                        "externalSpectrumID"
-                                                    ]
-                                                },
-                                                "children": {
-                                                    "isolation_window": {
-                                                        "self": [
-                                                            "isolationWindow"
-                                                        ],
-                                                        "attributes": {},
-                                                        "children": {
-                                                            "referenceable_param_group_ref": {
-                                                                "self": [
-                                                                    "referenceableParamGroupRef",
-                                                                    "paramGroupRef"
-                                                                ],
-                                                                "attributes": {
-                                                                    "ref": [
-                                                                        "ref"
-                                                                    ]
-                                                                }
-                                                            },
-                                                            "cv_param": {
-                                                                "self": [
-                                                                    "cvParam"
-                                                                ],
-                                                                "attributes": {}
-                                                            },
-                                                            "user_param": {
-                                                                "self": [
-                                                                    "userParam"
-                                                                ],
-                                                                "attributes": {}
-                                                            }
-                                                        }
-                                                    },
-                                                    "selected_ion_list": {
-                                                        "self": [
-                                                            "selectedIonList"
-                                                        ],
-                                                        "attributes": {
-                                                            "count": [
-                                                                "count"
-                                                            ]
-                                                        },
-                                                        "children": {
-                                                            "selected_ion": {
-                                                                "self": [
-                                                                    "selectedIon"
-                                                                ],
-                                                                "attributes": {},
-                                                                "children": {
-                                                                    "referenceable_param_group_ref": {
-                                                                        "self": [
-                                                                            "referenceableParamGroupRef",
-                                                                            "paramGroupRef"
-                                                                        ],
-                                                                        "attributes": {
-                                                                            "ref": [
-                                                                                "ref"
-                                                                            ]
-                                                                        }
-                                                                    },
-                                                                    "cv_param": {
-                                                                        "self": [
-                                                                            "cvParam"
-                                                                        ],
-                                                                        "attributes": {}
-                                                                    },
-                                                                    "user_param": {
-                                                                        "self": [
-                                                                            "userParam"
-                                                                        ],
-                                                                        "attributes": {}
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    },
-                                                    "activation": {
-                                                        "self": [
-                                                            "activation"
-                                                        ],
-                                                        "attributes": {},
-                                                        "children": {
-                                                            "referenceable_param_group_ref": {
-                                                                "self": [
-                                                                    "referenceableParamGroupRef",
-                                                                    "paramGroupRef"
-                                                                ],
-                                                                "attributes": {
-                                                                    "ref": [
-                                                                        "ref"
-                                                                    ]
-                                                                }
-                                                            },
-                                                            "cv_param": {
-                                                                "self": [
-                                                                    "cvParam"
-                                                                ],
-                                                                "attributes": {}
-                                                            },
-                                                            "user_param": {
-                                                                "self": [
-                                                                    "userParam"
-                                                                ],
-                                                                "attributes": {}
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    },
-                                    "product_list": {
-                                        "self": [
-                                            "productList"
-                                        ],
-                                        "attributes": {
-                                            "count": [
-                                                "count"
-                                            ]
-                                        },
-                                        "children": {
-                                            "product": {
-                                                "self": [
-                                                    "product"
-                                                ],
-                                                "attributes": {
-                                                    "spectrum_ref": [
-                                                        "spectrumRef"
-                                                    ],
-                                                    "source_file_ref": [
-                                                        "sourceFileRef"
-                                                    ],
-                                                    "external_spectrum_id": [
-                                                        "externalSpectrumID"
-                                                    ]
-                                                },
-                                                "children": {
-                                                    "isolation_window": {
-                                                        "self": [
-                                                            "isolationWindow"
-                                                        ],
-                                                        "attributes": {},
-                                                        "children": {
-                                                            "referenceable_param_group_ref": {
-                                                                "self": [
-                                                                    "referenceableParamGroupRef",
-                                                                    "paramGroupRef"
-                                                                ],
-                                                                "attributes": {
-                                                                    "ref": [
-                                                                        "ref"
-                                                                    ]
-                                                                }
-                                                            },
-                                                            "cv_param": {
-                                                                "self": [
-                                                                    "cvParam"
-                                                                ],
-                                                                "attributes": {}
-                                                            },
-                                                            "user_param": {
-                                                                "self": [
-                                                                    "userParam"
-                                                                ],
-                                                                "attributes": {}
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {}
                             },
                             "scan_list": {
                                 "self": [
@@ -1078,14 +1306,52 @@
                                     ]
                                 },
                                 "children": {
+                                    "referenceable_param_group_ref": {
+                                        "self": [
+                                            "referenceableParamGroupRef"
+                                        ],
+                                        "attributes": {
+                                            "ref": [
+                                                "ref"
+                                            ]
+                                        },
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {
+                                            "ref": "required"
+                                        }
+                                    },
+                                    "cv_param": {
+                                        "self": [
+                                            "cvParam"
+                                        ],
+                                        "attributes": {},
+                                        "use": "optional",
+                                        "accessions": [
+                                            "MS:1000570",
+                                            "MS:1000571",
+                                            "MS:1000573",
+                                            "MS:1000575",
+                                            "MS:1000795"
+                                        ],
+                                        "attributes_use": {}
+                                    },
+                                    "user_param": {
+                                        "self": [
+                                            "userParam"
+                                        ],
+                                        "attributes": {},
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {}
+                                    },
                                     "scan": {
                                         "self": [
                                             "scan"
                                         ],
                                         "attributes": {
                                             "instrument_configuration_ref": [
-                                                "instrumentConfigurationRef",
-                                                "instrumentRef"
+                                                "instrumentConfigurationRef"
                                             ],
                                             "external_spectrum_id": [
                                                 "externalSpectrumID"
@@ -1100,31 +1366,59 @@
                                         "children": {
                                             "referenceable_param_group_ref": {
                                                 "self": [
-                                                    "referenceableParamGroupRef",
-                                                    "paramGroupRef"
+                                                    "referenceableParamGroupRef"
                                                 ],
                                                 "attributes": {
                                                     "ref": [
                                                         "ref"
                                                     ]
+                                                },
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {
+                                                    "ref": "required"
                                                 }
                                             },
                                             "cv_param": {
                                                 "self": [
                                                     "cvParam"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "optional",
+                                                "accessions": [
+                                                    "MS:1000503",
+                                                    "MS:1000011",
+                                                    "MS:1000015",
+                                                    "MS:1000016",
+                                                    "MS:1000502",
+                                                    "MS:1000512",
+                                                    "MS:1000616",
+                                                    "MS:1000800",
+                                                    "MS:1000803",
+                                                    "MS:1000826",
+                                                    "MS:1000880",
+                                                    "MS:1000018",
+                                                    "MS:1000092",
+                                                    "MS:1000093",
+                                                    "MS:1000019",
+                                                    "MS:1000094",
+                                                    "MS:1000095",
+                                                    "MS:1000096"
+                                                ],
+                                                "attributes_use": {}
                                             },
                                             "user_param": {
                                                 "self": [
                                                     "userParam"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {}
                                             },
                                             "scan_window_list": {
                                                 "self": [
-                                                    "scanWindowList",
-                                                    "selectionWindowList"
+                                                    "scanWindowList"
                                                 ],
                                                 "attributes": {
                                                     "count": [
@@ -1134,8 +1428,7 @@
                                                 "children": {
                                                     "scan_window": {
                                                         "self": [
-                                                            "scanWindow",
-                                                            "selectionWindow"
+                                                            "scanWindow"
                                                         ],
                                                         "attributes": {},
                                                         "children": {
@@ -1143,20 +1436,50 @@
                                                                 "self": [
                                                                     "cvParam"
                                                                 ],
-                                                                "attributes": {}
+                                                                "attributes": {},
+                                                                "use": "required",
+                                                                "accessions": [
+                                                                    "MS:1000501",
+                                                                    "MS:1000500"
+                                                                ],
+                                                                "attributes_use": {}
                                                             },
                                                             "user_param": {
                                                                 "self": [
                                                                     "userParam"
                                                                 ],
-                                                                "attributes": {}
+                                                                "attributes": {},
+                                                                "use": "optional",
+                                                                "accessions": [],
+                                                                "attributes_use": {}
                                                             }
-                                                        }
+                                                        },
+                                                        "use": "optional",
+                                                        "accessions": [],
+                                                        "attributes_use": {}
                                                     }
+                                                },
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {
+                                                    "count": "required"
                                                 }
                                             }
+                                        },
+                                        "use": "required",
+                                        "accessions": [],
+                                        "attributes_use": {
+                                            "instrument_configuration_ref": "optional",
+                                            "external_spectrum_id": "optional",
+                                            "source_file_ref": "optional",
+                                            "spectrum_ref": "optional"
                                         }
                                     }
+                                },
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "count": "required"
                                 }
                             },
                             "precursor_list": {
@@ -1182,6 +1505,9 @@
                                             ],
                                             "external_spectrum_id": [
                                                 "externalSpectrumID"
+                                            ],
+                                            "external_native_id": [
+                                                "externalNativeID"
                                             ]
                                         },
                                         "children": {
@@ -1193,28 +1519,46 @@
                                                 "children": {
                                                     "referenceable_param_group_ref": {
                                                         "self": [
-                                                            "referenceableParamGroupRef",
-                                                            "paramGroupRef"
+                                                            "referenceableParamGroupRef"
                                                         ],
                                                         "attributes": {
                                                             "ref": [
                                                                 "ref"
                                                             ]
+                                                        },
+                                                        "use": "optional",
+                                                        "accessions": [],
+                                                        "attributes_use": {
+                                                            "ref": "required"
                                                         }
                                                     },
                                                     "cv_param": {
                                                         "self": [
                                                             "cvParam"
                                                         ],
-                                                        "attributes": {}
+                                                        "attributes": {},
+                                                        "use": "optional",
+                                                        "accessions": [
+                                                            "MS:1000792",
+                                                            "MS:1000827",
+                                                            "MS:1000828",
+                                                            "MS:1000829"
+                                                        ],
+                                                        "attributes_use": {}
                                                     },
                                                     "user_param": {
                                                         "self": [
                                                             "userParam"
                                                         ],
-                                                        "attributes": {}
+                                                        "attributes": {},
+                                                        "use": "optional",
+                                                        "accessions": [],
+                                                        "attributes_use": {}
                                                     }
-                                                }
+                                                },
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {}
                                             },
                                             "selected_ion_list": {
                                                 "self": [
@@ -1234,29 +1578,53 @@
                                                         "children": {
                                                             "referenceable_param_group_ref": {
                                                                 "self": [
-                                                                    "referenceableParamGroupRef",
-                                                                    "paramGroupRef"
+                                                                    "referenceableParamGroupRef"
                                                                 ],
                                                                 "attributes": {
                                                                     "ref": [
                                                                         "ref"
                                                                     ]
+                                                                },
+                                                                "use": "optional",
+                                                                "accessions": [],
+                                                                "attributes_use": {
+                                                                    "ref": "required"
                                                                 }
                                                             },
                                                             "cv_param": {
                                                                 "self": [
                                                                     "cvParam"
                                                                 ],
-                                                                "attributes": {}
+                                                                "attributes": {},
+                                                                "use": "optional",
+                                                                "accessions": [
+                                                                    "MS:1000041",
+                                                                    "MS:1000042",
+                                                                    "MS:1000455",
+                                                                    "MS:1000633",
+                                                                    "MS:1000744"
+                                                                ],
+                                                                "attributes_use": {}
                                                             },
                                                             "user_param": {
                                                                 "self": [
                                                                     "userParam"
                                                                 ],
-                                                                "attributes": {}
+                                                                "attributes": {},
+                                                                "use": "optional",
+                                                                "accessions": [],
+                                                                "attributes_use": {}
                                                             }
-                                                        }
+                                                        },
+                                                        "use": "required",
+                                                        "accessions": [],
+                                                        "attributes_use": {}
                                                     }
+                                                },
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {
+                                                    "count": "required"
                                                 }
                                             },
                                             "activation": {
@@ -1267,31 +1635,77 @@
                                                 "children": {
                                                     "referenceable_param_group_ref": {
                                                         "self": [
-                                                            "referenceableParamGroupRef",
-                                                            "paramGroupRef"
+                                                            "referenceableParamGroupRef"
                                                         ],
                                                         "attributes": {
                                                             "ref": [
                                                                 "ref"
                                                             ]
+                                                        },
+                                                        "use": "optional",
+                                                        "accessions": [],
+                                                        "attributes_use": {
+                                                            "ref": "required"
                                                         }
                                                     },
                                                     "cv_param": {
                                                         "self": [
                                                             "cvParam"
                                                         ],
-                                                        "attributes": {}
+                                                        "attributes": {},
+                                                        "use": "optional",
+                                                        "accessions": [
+                                                            "MS:1000044",
+                                                            "MS:1000045",
+                                                            "MS:1000133",
+                                                            "MS:1000134",
+                                                            "MS:1000135",
+                                                            "MS:1000136",
+                                                            "MS:1000138",
+                                                            "MS:1000242",
+                                                            "MS:1000245",
+                                                            "MS:1000250",
+                                                            "MS:1000262",
+                                                            "MS:1000282",
+                                                            "MS:1000412",
+                                                            "MS:1000419",
+                                                            "MS:1000422",
+                                                            "MS:1000433",
+                                                            "MS:1000509",
+                                                            "MS:1000510",
+                                                            "MS:1000869"
+                                                        ],
+                                                        "attributes_use": {}
                                                     },
                                                     "user_param": {
                                                         "self": [
                                                             "userParam"
                                                         ],
-                                                        "attributes": {}
+                                                        "attributes": {},
+                                                        "use": "optional",
+                                                        "accessions": [],
+                                                        "attributes_use": {}
                                                     }
-                                                }
+                                                },
+                                                "use": "required",
+                                                "accessions": [],
+                                                "attributes_use": {}
                                             }
+                                        },
+                                        "use": "required",
+                                        "accessions": [],
+                                        "attributes_use": {
+                                            "spectrum_ref": "optional",
+                                            "source_file_ref": "optional",
+                                            "external_spectrum_id": "optional",
+                                            "external_native_id": "optional"
                                         }
                                     }
+                                },
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "count": "required"
                                 }
                             },
                             "product_list": {
@@ -1328,31 +1742,61 @@
                                                 "children": {
                                                     "referenceable_param_group_ref": {
                                                         "self": [
-                                                            "referenceableParamGroupRef",
-                                                            "paramGroupRef"
+                                                            "referenceableParamGroupRef"
                                                         ],
                                                         "attributes": {
                                                             "ref": [
                                                                 "ref"
                                                             ]
+                                                        },
+                                                        "use": "optional",
+                                                        "accessions": [],
+                                                        "attributes_use": {
+                                                            "ref": "required"
                                                         }
                                                     },
                                                     "cv_param": {
                                                         "self": [
                                                             "cvParam"
                                                         ],
-                                                        "attributes": {}
+                                                        "attributes": {},
+                                                        "use": "optional",
+                                                        "accessions": [
+                                                            "MS:1000792",
+                                                            "MS:1000827",
+                                                            "MS:1000828",
+                                                            "MS:1000829"
+                                                        ],
+                                                        "attributes_use": {}
                                                     },
                                                     "user_param": {
                                                         "self": [
                                                             "userParam"
                                                         ],
-                                                        "attributes": {}
+                                                        "attributes": {},
+                                                        "use": "optional",
+                                                        "accessions": [],
+                                                        "attributes_use": {}
                                                     }
-                                                }
+                                                },
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {}
                                             }
+                                        },
+                                        "use": "required",
+                                        "accessions": [],
+                                        "attributes_use": {
+                                            "spectrum_ref": "optional",
+                                            "source_file_ref": "optional",
+                                            "external_spectrum_id": "optional"
                                         }
                                     }
+                                },
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "count": "required"
                                 }
                             },
                             "binary_data_array_list": {
@@ -1383,39 +1827,98 @@
                                         "children": {
                                             "referenceable_param_group_ref": {
                                                 "self": [
-                                                    "referenceableParamGroupRef",
-                                                    "paramGroupRef"
+                                                    "referenceableParamGroupRef"
                                                 ],
                                                 "attributes": {
                                                     "ref": [
                                                         "ref"
                                                     ]
+                                                },
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {
+                                                    "ref": "required"
                                                 }
                                             },
                                             "cv_param": {
                                                 "self": [
                                                     "cvParam"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "optional",
+                                                "accessions": [
+                                                    "MS:1000513",
+                                                    "MS:1000514",
+                                                    "MS:1000515",
+                                                    "MS:1000516",
+                                                    "MS:1000517",
+                                                    "MS:1000518",
+                                                    "MS:1000521",
+                                                    "MS:1000523",
+                                                    "MS:1000572",
+                                                    "MS:1000574",
+                                                    "MS:1000576",
+                                                    "MS:1000595",
+                                                    "MS:1000617",
+                                                    "MS:1000786",
+                                                    "MS:1000820",
+                                                    "MS:1000821",
+                                                    "MS:1000822"
+                                                ],
+                                                "attributes_use": {}
                                             },
                                             "user_param": {
                                                 "self": [
                                                     "userParam"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {}
                                             },
                                             "binary": {
                                                 "self": [
                                                     "binary"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "required",
+                                                "accessions": [],
+                                                "attributes_use": {}
                                             }
+                                        },
+                                        "use": "required",
+                                        "accessions": [],
+                                        "attributes_use": {
+                                            "array_length": "optional",
+                                            "encoded_length": "required",
+                                            "data_processing_ref": "optional"
                                         }
                                     }
+                                },
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "count": "required"
                                 }
                             }
+                        },
+                        "use": "required",
+                        "accessions": [],
+                        "attributes_use": {
+                            "id": "required",
+                            "index": "required",
+                            "default_array_length": "required",
+                            "data_processing_ref": "optional",
+                            "source_file_ref": "optional",
+                            "spot_id": "optional"
                         }
                     }
+                },
+                "use": "optional",
+                "accessions": [],
+                "attributes_use": {
+                    "count": "required",
+                    "default_data_processing_ref": "required"
                 }
             },
             "chromatogram_list": {
@@ -1439,11 +1942,11 @@
                             "id": [
                                 "id"
                             ],
-                            "native_id": [
-                                "nativeID"
-                            ],
                             "index": [
                                 "index"
+                            ],
+                            "native_id": [
+                                "nativeID"
                             ],
                             "default_array_length": [
                                 "defaultArrayLength"
@@ -1461,33 +1964,58 @@
                                     "ref": [
                                         "ref"
                                     ]
+                                },
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "ref": "required"
                                 }
                             },
                             "cv_param": {
                                 "self": [
                                     "cvParam"
                                 ],
-                                "attributes": {}
+                                "attributes": {},
+                                "use": "optional",
+                                "accessions": [
+                                    "MS:1000026",
+                                    "MS:1000808",
+                                    "MS:1000527",
+                                    "MS:1000528",
+                                    "MS:1000618",
+                                    "MS:1000619",
+                                    "MS:1000809",
+                                    "MS:1000626",
+                                    "MS:1000235",
+                                    "MS:1000627",
+                                    "MS:1000628",
+                                    "MS:1000812",
+                                    "MS:1000813"
+                                ],
+                                "attributes_use": {}
                             },
                             "user_param": {
                                 "self": [
                                     "userParam"
                                 ],
-                                "attributes": {}
+                                "attributes": {},
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {}
                             },
                             "precursor": {
                                 "self": [
                                     "precursor"
                                 ],
                                 "attributes": {
-                                    "spectrum_ref": [
-                                        "spectrumRef"
+                                    "external_spectrum_id": [
+                                        "externalSpectrumID"
                                     ],
                                     "source_file_ref": [
                                         "sourceFileRef"
                                     ],
-                                    "external_spectrum_id": [
-                                        "externalSpectrumID"
+                                    "spectrum_ref": [
+                                        "spectrumRef"
                                     ]
                                 },
                                 "children": {
@@ -1499,28 +2027,46 @@
                                         "children": {
                                             "referenceable_param_group_ref": {
                                                 "self": [
-                                                    "referenceableParamGroupRef",
-                                                    "paramGroupRef"
+                                                    "referenceableParamGroupRef"
                                                 ],
                                                 "attributes": {
                                                     "ref": [
                                                         "ref"
                                                     ]
+                                                },
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {
+                                                    "ref": "required"
                                                 }
                                             },
                                             "cv_param": {
                                                 "self": [
                                                     "cvParam"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "optional",
+                                                "accessions": [
+                                                    "MS:1000792",
+                                                    "MS:1000827",
+                                                    "MS:1000828",
+                                                    "MS:1000829"
+                                                ],
+                                                "attributes_use": {}
                                             },
                                             "user_param": {
                                                 "self": [
                                                     "userParam"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {}
                                             }
-                                        }
+                                        },
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {}
                                     },
                                     "selected_ion_list": {
                                         "self": [
@@ -1540,29 +2086,53 @@
                                                 "children": {
                                                     "referenceable_param_group_ref": {
                                                         "self": [
-                                                            "referenceableParamGroupRef",
-                                                            "paramGroupRef"
+                                                            "referenceableParamGroupRef"
                                                         ],
                                                         "attributes": {
                                                             "ref": [
                                                                 "ref"
                                                             ]
+                                                        },
+                                                        "use": "optional",
+                                                        "accessions": [],
+                                                        "attributes_use": {
+                                                            "ref": "required"
                                                         }
                                                     },
                                                     "cv_param": {
                                                         "self": [
                                                             "cvParam"
                                                         ],
-                                                        "attributes": {}
+                                                        "attributes": {},
+                                                        "use": "optional",
+                                                        "accessions": [
+                                                            "MS:1000744",
+                                                            "MS:1000633",
+                                                            "MS:1000040",
+                                                            "MS:1000041",
+                                                            "MS:1000042"
+                                                        ],
+                                                        "attributes_use": {}
                                                     },
                                                     "user_param": {
                                                         "self": [
                                                             "userParam"
                                                         ],
-                                                        "attributes": {}
+                                                        "attributes": {},
+                                                        "use": "optional",
+                                                        "accessions": [],
+                                                        "attributes_use": {}
                                                     }
-                                                }
+                                                },
+                                                "use": "required",
+                                                "accessions": [],
+                                                "attributes_use": {}
                                             }
+                                        },
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {
+                                            "count": "required"
                                         }
                                     },
                                     "activation": {
@@ -1573,46 +2143,76 @@
                                         "children": {
                                             "referenceable_param_group_ref": {
                                                 "self": [
-                                                    "referenceableParamGroupRef",
-                                                    "paramGroupRef"
+                                                    "referenceableParamGroupRef"
                                                 ],
                                                 "attributes": {
                                                     "ref": [
                                                         "ref"
                                                     ]
+                                                },
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {
+                                                    "ref": "required"
                                                 }
                                             },
                                             "cv_param": {
                                                 "self": [
                                                     "cvParam"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "optional",
+                                                "accessions": [
+                                                    "MS:1000510",
+                                                    "MS:1000045",
+                                                    "MS:1000138",
+                                                    "MS:1000245",
+                                                    "MS:1000412",
+                                                    "MS:1000419",
+                                                    "MS:1000509",
+                                                    "MS:1000869",
+                                                    "MS:1000044",
+                                                    "MS:1000133",
+                                                    "MS:1000134",
+                                                    "MS:1000135",
+                                                    "MS:1000136",
+                                                    "MS:1000242",
+                                                    "MS:1000250",
+                                                    "MS:1000262",
+                                                    "MS:1000282",
+                                                    "MS:1000422",
+                                                    "MS:1000433"
+                                                ],
+                                                "attributes_use": {}
                                             },
                                             "user_param": {
                                                 "self": [
                                                     "userParam"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {}
                                             }
-                                        }
+                                        },
+                                        "use": "required",
+                                        "accessions": [],
+                                        "attributes_use": {}
                                     }
+                                },
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "external_spectrum_id": "optional",
+                                    "source_file_ref": "optional",
+                                    "spectrum_ref": "optional"
                                 }
                             },
                             "product": {
                                 "self": [
                                     "product"
                                 ],
-                                "attributes": {
-                                    "spectrum_ref": [
-                                        "spectrumRef"
-                                    ],
-                                    "source_file_ref": [
-                                        "sourceFileRef"
-                                    ],
-                                    "external_spectrum_id": [
-                                        "externalSpectrumID"
-                                    ]
-                                },
+                                "attributes": {},
                                 "children": {
                                     "isolation_window": {
                                         "self": [
@@ -1622,30 +2222,51 @@
                                         "children": {
                                             "referenceable_param_group_ref": {
                                                 "self": [
-                                                    "referenceableParamGroupRef",
-                                                    "paramGroupRef"
+                                                    "referenceableParamGroupRef"
                                                 ],
                                                 "attributes": {
                                                     "ref": [
                                                         "ref"
                                                     ]
+                                                },
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {
+                                                    "ref": "required"
                                                 }
                                             },
                                             "cv_param": {
                                                 "self": [
                                                     "cvParam"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "optional",
+                                                "accessions": [
+                                                    "MS:1000792",
+                                                    "MS:1000827",
+                                                    "MS:1000828",
+                                                    "MS:1000829"
+                                                ],
+                                                "attributes_use": {}
                                             },
                                             "user_param": {
                                                 "self": [
                                                     "userParam"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {}
                                             }
-                                        }
+                                        },
+                                        "use": "optional",
+                                        "accessions": [],
+                                        "attributes_use": {}
                                     }
-                                }
+                                },
+                                "use": "optional",
+                                "accessions": [],
+                                "attributes_use": {}
                             },
                             "binary_data_array_list": {
                                 "self": [
@@ -1662,11 +2283,11 @@
                                             "binaryDataArray"
                                         ],
                                         "attributes": {
-                                            "encoded_length": [
-                                                "encodedLength"
-                                            ],
                                             "array_length": [
                                                 "arrayLength"
+                                            ],
+                                            "encoded_length": [
+                                                "encodedLength"
                                             ],
                                             "data_processing_ref": [
                                                 "dataProcessingRef"
@@ -1675,41 +2296,107 @@
                                         "children": {
                                             "referenceable_param_group_ref": {
                                                 "self": [
-                                                    "referenceableParamGroupRef",
-                                                    "paramGroupRef"
+                                                    "referenceableParamGroupRef"
                                                 ],
                                                 "attributes": {
                                                     "ref": [
                                                         "ref"
                                                     ]
+                                                },
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {
+                                                    "ref": "required"
                                                 }
                                             },
                                             "cv_param": {
                                                 "self": [
                                                     "cvParam"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "optional",
+                                                "accessions": [
+                                                    "MS:1000513",
+                                                    "MS:1000514",
+                                                    "MS:1000515",
+                                                    "MS:1000516",
+                                                    "MS:1000517",
+                                                    "MS:1000518",
+                                                    "MS:1000521",
+                                                    "MS:1000523",
+                                                    "MS:1000572",
+                                                    "MS:1000574",
+                                                    "MS:1000576",
+                                                    "MS:1000595",
+                                                    "MS:1000617",
+                                                    "MS:1000786",
+                                                    "MS:1000820",
+                                                    "MS:1000821",
+                                                    "MS:1000822"
+                                                ],
+                                                "attributes_use": {}
                                             },
                                             "user_param": {
                                                 "self": [
                                                     "userParam"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "optional",
+                                                "accessions": [],
+                                                "attributes_use": {}
                                             },
                                             "binary": {
                                                 "self": [
                                                     "binary"
                                                 ],
-                                                "attributes": {}
+                                                "attributes": {},
+                                                "use": "required",
+                                                "accessions": [],
+                                                "attributes_use": {}
                                             }
+                                        },
+                                        "use": "required",
+                                        "accessions": [],
+                                        "attributes_use": {
+                                            "array_length": "optional",
+                                            "encoded_length": "required",
+                                            "data_processing_ref": "optional"
                                         }
                                     }
+                                },
+                                "use": "required",
+                                "accessions": [],
+                                "attributes_use": {
+                                    "count": "required"
                                 }
                             }
+                        },
+                        "use": "required",
+                        "accessions": [],
+                        "attributes_use": {
+                            "data_processing_ref": "optional",
+                            "default_array_length": "required",
+                            "id": "required",
+                            "index": "required"
                         }
                     }
+                },
+                "use": "optional",
+                "accessions": [],
+                "attributes_use": {
+                    "count": "required",
+                    "default_data_processing_ref": "required"
                 }
             }
+        },
+        "use": "required",
+        "accessions": [],
+        "attributes_use": {
+            "id": "required",
+            "start_time_stamp": "optional",
+            "default_instrument_configuration_ref": "required",
+            "default_source_file_ref": "optional",
+            "sample_ref": "optional"
         }
     }
 }

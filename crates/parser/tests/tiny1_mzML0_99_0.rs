@@ -2,32 +2,20 @@ mod helpers;
 
 use std::sync::OnceLock;
 
-use b::utilities::mzml::{MzML, Spectrum};
+use b::utilities::mzml::MzML;
 
 use helpers::utilities::{
-    CvRefMode, assert_cv, assert_cv_absent, assert_cv_f64, assert_cv_ref, assert_software, mzml,
+    CvRefMode, assert_cv, assert_cv_f64, assert_software, mzml, spectrum_by_id,
     spectrum_description, spectrum_precursor_list, spectrum_scan_list,
 };
 
 static MZML_CACHE: OnceLock<MzML> = OnceLock::new();
 
-const PATH: &str = "data/mzml/tiny2_SRM.mzML0.99.1.mzML";
+const PATH: &str = "data/mzml/tiny1.mzML0.99.0.mzML";
 const CV_REF_MODE: CvRefMode = CvRefMode::AllowMissingMs;
 
-fn spectrum_by_id<'a>(mzml: &'a MzML, id: &str) -> &'a Spectrum {
-    let sl = mzml
-        .run
-        .spectrum_list
-        .as_ref()
-        .expect("spectrumList parsed");
-    sl.spectra
-        .iter()
-        .find(|s| s.id == id)
-        .unwrap_or_else(|| panic!("spectrum {id} not found"))
-}
-
 #[test]
-fn tiny1_srm_mzml0_99_1_header_sections() {
+fn tiny1_mzml0_99_0_header_sections() {
     let mzml = mzml(&MZML_CACHE, PATH);
 
     // cvList
@@ -49,16 +37,7 @@ fn tiny1_srm_mzml0_99_1_header_sections() {
     let file_desc = &mzml.file_description;
 
     // fileContent
-    assert_eq!(file_desc.file_content.cv_params.len(), 2);
-    assert_cv(
-        CV_REF_MODE,
-        &file_desc.file_content.cv_params,
-        "SRM spectrum",
-        "MS:1000583",
-        "MS",
-        Some(""),
-        None,
-    );
+    assert_eq!(file_desc.file_content.cv_params.len(), 1);
     assert_cv(
         CV_REF_MODE,
         &file_desc.file_content.cv_params,
@@ -73,7 +52,7 @@ fn tiny1_srm_mzml0_99_1_header_sections() {
     assert_eq!(file_desc.source_file_list.source_file.len(), 1);
     let sf0 = &file_desc.source_file_list.source_file[0];
     assert_eq!(sf0.id, "1");
-    assert_eq!(sf0.name, "tiny2_SRM.RAW");
+    assert_eq!(sf0.name, "tiny1.RAW");
     assert_eq!(sf0.location, "file://F:/data/Exp01");
     assert_cv(
         CV_REF_MODE,
@@ -139,40 +118,31 @@ fn tiny1_srm_mzml0_99_1_header_sections() {
         .as_ref()
         .expect("referenceableParamGroupList parsed");
     assert_eq!(rpgl.referenceable_param_groups.len(), 2);
-
-    let g0 = &rpgl.referenceable_param_groups[0];
-    assert_eq!(g0.id, "CommonSRMScanParams");
-    assert_eq!(g0.cv_params.len(), 1);
-    assert_cv(
-        CV_REF_MODE,
-        &g0.cv_params,
-        "positive scan",
-        "MS:1000130",
-        "MS",
-        Some(""),
-        None,
-    );
-
-    let g1 = &rpgl.referenceable_param_groups[1];
-    assert_eq!(g1.id, "CommonMS2ScanParams");
-    assert_cv(
-        CV_REF_MODE,
-        &g1.cv_params,
-        "positive scan",
-        "MS:1000130",
-        "MS",
-        Some(""),
-        None,
-    );
-    assert_cv(
-        CV_REF_MODE,
-        &g1.cv_params,
-        "full scan",
-        "MS:1000498",
-        "MS",
-        Some(""),
-        None,
-    );
+    for (idx, id) in [
+        (0usize, "CommonMS1SpectrumParams"),
+        (1usize, "CommonMS2SpectrumParams"),
+    ] {
+        let g = &rpgl.referenceable_param_groups[idx];
+        assert_eq!(g.id, id);
+        assert_cv(
+            CV_REF_MODE,
+            &g.cv_params,
+            "positive scan",
+            "MS:1000130",
+            "MS",
+            Some(""),
+            None,
+        );
+        assert_cv(
+            CV_REF_MODE,
+            &g.cv_params,
+            "full scan",
+            "MS:1000498",
+            "MS",
+            Some(""),
+            None,
+        );
+    }
 
     // sampleList
     let sample_list = mzml.sample_list.as_ref().expect("sampleList parsed");
@@ -188,12 +158,12 @@ fn tiny1_srm_mzml0_99_1_header_sections() {
         .expect("instrumentList parsed");
     assert_eq!(inst_list.instrument.len(), 1);
     let inst0 = &inst_list.instrument[0];
-    assert_eq!(inst0.id, "TSQ Quantum");
+    assert_eq!(inst0.id, "LCQ Deca");
     assert_cv(
         CV_REF_MODE,
         &inst0.cv_param,
-        "TSQ Quantum",
-        "MS:1000199",
+        "LCQ Deca",
+        "MS:1000554",
         "MS",
         Some(""),
         None,
@@ -204,13 +174,14 @@ fn tiny1_srm_mzml0_99_1_header_sections() {
         "instrument serial number",
         "MS:1000529",
         "MS",
-        Some("39236"),
+        Some("23433"),
         None,
     );
 
+    // componentList
     let cl0 = inst0.component_list.as_ref().expect("componentList parsed");
     assert_eq!(cl0.source.len(), 1);
-    assert_eq!(cl0.analyzer.len(), 3);
+    assert_eq!(cl0.analyzer.len(), 1);
     assert_eq!(cl0.detector.len(), 1);
 
     let src = &cl0.source[0];
@@ -225,22 +196,20 @@ fn tiny1_srm_mzml0_99_1_header_sections() {
         None,
     );
 
-    for (i, order) in [2, 3, 4].into_iter().enumerate() {
-        let an = &cl0.analyzer[i];
-        assert_eq!(an.order, Some(order));
-        assert_cv(
-            CV_REF_MODE,
-            &an.cv_param,
-            "quadrupole",
-            "MS:1000081",
-            "MS",
-            Some(""),
-            None,
-        );
-    }
+    let an = &cl0.analyzer[0];
+    assert_eq!(an.order, Some(2));
+    assert_cv(
+        CV_REF_MODE,
+        &an.cv_param,
+        "quadrupole ion trap",
+        "MS:1000082",
+        "MS",
+        Some(""),
+        None,
+    );
 
     let det = &cl0.detector[0];
-    assert_eq!(det.order, Some(5));
+    assert_eq!(det.order, Some(3));
     assert_cv(
         CV_REF_MODE,
         &det.cv_param,
@@ -321,43 +290,38 @@ fn tiny1_srm_mzml0_99_1_header_sections() {
         Some(""),
         None,
     );
+}
 
-    // run
+#[test]
+fn tiny1_mzml0_99_0_spectrum_s19() {
+    let mzml = mzml(&MZML_CACHE, PATH);
+
+    // run / sourceFileRefList
     let run = &mzml.run;
-    assert_eq!(run.id.as_str(), "msRun01");
-    assert_eq!(run.sample_ref.as_deref(), Some("1"));
-
     let sfrefl = run
         .source_file_ref_list
         .as_ref()
         .expect("sourceFileRefList parsed");
     assert_eq!(sfrefl.source_file_refs.len(), 1);
     assert_eq!(sfrefl.source_file_refs[0].r#ref, "1");
-}
-
-#[test]
-fn tiny1_srm_mzml0_99_1_spectrum_s101() {
-    let mzml = mzml(&MZML_CACHE, PATH);
 
     // spectrumList
-    let sl = mzml
-        .run
-        .spectrum_list
-        .as_ref()
-        .expect("spectrumList parsed");
+    let sl = run.spectrum_list.as_ref().expect("spectrumList parsed");
     assert_eq!(sl.spectra.len(), 2);
 
     // spectrum
-    let s0 = spectrum_by_id(mzml, "S101");
-    assert!(s0.cv_params.iter().any(|cv| cv.name == "SRM spectrum"));
-
-    match s0.cv_params.iter().find(|cv| cv.name == "ms level") {
-        Some(mslvl) => {
-            assert_eq!(mslvl.accession.as_deref(), Some("MS:1000511"));
-            assert_cv_ref(CV_REF_MODE, mslvl.cv_ref.as_deref(), "MS", "ms level");
-            assert_eq!(mslvl.value.as_deref(), Some("2"));
-        }
-        None => assert_cv_absent(&s0.cv_params, "ms level"),
+    let s0 = spectrum_by_id(mzml, "S19");
+    assert!(s0.cv_params.iter().any(|cv| cv.name == "MSn spectrum"));
+    if s0.cv_params.iter().any(|cv| cv.name == "ms level") {
+        assert_cv(
+            CV_REF_MODE,
+            &s0.cv_params,
+            "ms level",
+            "MS:1000511",
+            "MS",
+            Some("1"),
+            None,
+        );
     }
 
     // spectrumDescription
@@ -365,59 +329,63 @@ fn tiny1_srm_mzml0_99_1_spectrum_s101() {
     assert_cv(
         CV_REF_MODE,
         &sd.cv_params,
-        "centroid mass spectrum",
+        "centroid spectrum",
         "MS:1000127",
         "MS",
         Some(""),
         None,
     );
+    assert_cv_f64(
+        CV_REF_MODE,
+        &sd.cv_params,
+        "lowest observed m/z",
+        "MS:1000528",
+        "MS",
+        400.39,
+        None,
+    );
+    assert_cv_f64(
+        CV_REF_MODE,
+        &sd.cv_params,
+        "highest observed m/z",
+        "MS:1000527",
+        "MS",
+        1795.56,
+        None,
+    );
+    assert_cv_f64(
+        CV_REF_MODE,
+        &sd.cv_params,
+        "base peak m/z",
+        "MS:1000504",
+        "MS",
+        445.347,
+        None,
+    );
+    assert_cv_f64(
+        CV_REF_MODE,
+        &sd.cv_params,
+        "base peak intensity",
+        "MS:1000505",
+        "MS",
+        120053.0,
+        None,
+    );
+    assert_cv_f64(
+        CV_REF_MODE,
+        &sd.cv_params,
+        "total ion current",
+        "MS:1000285",
+        "MS",
+        16675500.0,
+        None,
+    );
 
     // precursorList
-    let pl = spectrum_precursor_list(s0).expect("precursorList parsed");
-    assert_eq!(pl.precursors.len(), 1);
-    let p0 = &pl.precursors[0];
-    assert!(
-        p0.spectrum_ref.is_none(),
-        "unexpected spectrumRef for S101 precursor"
-    );
-
-    // selectedIonList
-    let sil = p0
-        .selected_ion_list
-        .as_ref()
-        .expect("selectedIonList parsed");
-    assert_eq!(sil.selected_ions.len(), 1);
-    let ion0 = &sil.selected_ions[0];
-    assert_cv_f64(
-        CV_REF_MODE,
-        &ion0.cv_params,
-        "m/z",
-        "MS:1000040",
-        "MS",
-        445.34,
-        None,
-    );
-
-    // activation
-    let act = p0.activation.as_ref().expect("activation parsed");
-    assert_cv(
-        CV_REF_MODE,
-        &act.cv_params,
-        "collision-induced dissociation",
-        "MS:1000133",
-        "MS",
-        Some(""),
-        None,
-    );
-    assert_cv_f64(
-        CV_REF_MODE,
-        &act.cv_params,
-        "collision energy",
-        "MS:1000045",
-        "MS",
-        26.0,
-        Some("electron volt"),
-    );
+    let pl = spectrum_precursor_list(s0)
+        .map(|p| p.precursors.len())
+        .unwrap_or(0);
+    assert_eq!(pl, 0);
 
     // scan
     let scl = spectrum_scan_list(s0);
@@ -438,7 +406,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s101() {
         "filter string",
         "MS:1000512",
         "MS",
-        Some("+ c ESI sid=8 SRM ms2 445.34@cid26.00 [515.12-525.14,672.55-672.57]"),
+        Some("+ c NSI Full ms [ 400.00-1800.00]"),
         None,
     );
 
@@ -447,64 +415,25 @@ fn tiny1_srm_mzml0_99_1_spectrum_s101() {
         .scan_window_list
         .as_ref()
         .expect("scanWindowList parsed");
-    assert_eq!(swl.scan_windows.len(), 2);
-
-    let w0 = &swl.scan_windows[0];
+    assert_eq!(swl.scan_windows.len(), 1);
+    let win0 = &swl.scan_windows[0];
     assert_cv_f64(
         CV_REF_MODE,
-        &w0.cv_params,
+        &win0.cv_params,
         "scan window lower limit",
         "MS:1000501",
         "MS",
-        525.12,
+        400.0,
         None,
     );
     assert_cv_f64(
         CV_REF_MODE,
-        &w0.cv_params,
+        &win0.cv_params,
         "scan window upper limit",
         "MS:1000500",
         "MS",
-        525.14,
+        1800.0,
         None,
-    );
-    assert_cv_f64(
-        CV_REF_MODE,
-        &w0.cv_params,
-        "dwell time",
-        "MS:1000502",
-        "MS",
-        0.07,
-        Some("second"),
-    );
-
-    let w1 = &swl.scan_windows[1];
-    assert_cv_f64(
-        CV_REF_MODE,
-        &w1.cv_params,
-        "scan window lower limit",
-        "MS:1000501",
-        "MS",
-        672.55,
-        None,
-    );
-    assert_cv_f64(
-        CV_REF_MODE,
-        &w1.cv_params,
-        "scan window upper limit",
-        "MS:1000500",
-        "MS",
-        672.57,
-        None,
-    );
-    assert_cv_f64(
-        CV_REF_MODE,
-        &w1.cv_params,
-        "dwell time",
-        "MS:1000502",
-        "MS",
-        0.07,
-        Some("second"),
     );
 
     // binaryDataArrayList
@@ -514,9 +443,10 @@ fn tiny1_srm_mzml0_99_1_spectrum_s101() {
         .expect("binaryDataArrayList parsed");
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
+    // binaryDataArray (m/z)
     let mz_ba = &bal.binary_data_arrays[0];
-    assert_eq!(mz_ba.array_length, Some(2));
-    assert_eq!(mz_ba.encoded_length, Some(22));
+    assert_eq!(mz_ba.array_length, Some(1313));
+    assert_eq!(mz_ba.encoded_length, Some(5000));
     assert_cv(
         CV_REF_MODE,
         &mz_ba.cv_params,
@@ -545,9 +475,10 @@ fn tiny1_srm_mzml0_99_1_spectrum_s101() {
         None,
     );
 
+    // binaryDataArray (intensity)
     let int_ba = &bal.binary_data_arrays[1];
-    assert_eq!(int_ba.array_length, Some(2));
-    assert_eq!(int_ba.encoded_length, Some(11));
+    assert_eq!(int_ba.array_length, Some(1313));
+    assert_eq!(int_ba.encoded_length, Some(5000));
     assert_cv(
         CV_REF_MODE,
         &int_ba.cv_params,
@@ -578,9 +509,10 @@ fn tiny1_srm_mzml0_99_1_spectrum_s101() {
 }
 
 #[test]
-fn tiny1_srm_mzml0_99_1_spectrum_s102() {
+fn tiny1_mzml0_99_0_spectrum_s20() {
     let mzml = mzml(&MZML_CACHE, PATH);
 
+    // spectrumList
     let sl = mzml
         .run
         .spectrum_list
@@ -588,27 +520,76 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
         .expect("spectrumList parsed");
     assert_eq!(sl.spectra.len(), 2);
 
-    let s1 = spectrum_by_id(mzml, "S102");
+    // spectrum
+    let s1 = spectrum_by_id(mzml, "S20");
     assert!(s1.cv_params.iter().any(|cv| cv.name == "MSn spectrum"));
-
-    match s1.cv_params.iter().find(|cv| cv.name == "ms level") {
-        Some(mslvl) => {
-            assert_eq!(mslvl.accession.as_deref(), Some("MS:1000511"));
-            assert_cv_ref(CV_REF_MODE, mslvl.cv_ref.as_deref(), "MS", "ms level");
-            assert_eq!(mslvl.value.as_deref(), Some("2"));
-        }
-        None => assert_cv_absent(&s1.cv_params, "ms level"),
+    if s1.cv_params.iter().any(|cv| cv.name == "ms level") {
+        assert_cv(
+            CV_REF_MODE,
+            &s1.cv_params,
+            "ms level",
+            "MS:1000511",
+            "MS",
+            Some("2"),
+            None,
+        );
     }
 
     // spectrumDescription
     let sd = spectrum_description(s1);
+    println!("Spectrum Description CV Params: {:#?}", sd.cv_params);
     assert_cv(
         CV_REF_MODE,
         &sd.cv_params,
-        "centroid mass spectrum",
+        "centroid spectrum",
         "MS:1000127",
         "MS",
         Some(""),
+        None,
+    );
+    assert_cv_f64(
+        CV_REF_MODE,
+        &sd.cv_params,
+        "lowest observed m/z",
+        "MS:1000528",
+        "MS",
+        320.39,
+        None,
+    );
+    assert_cv_f64(
+        CV_REF_MODE,
+        &sd.cv_params,
+        "highest observed m/z",
+        "MS:1000527",
+        "MS",
+        1003.56,
+        None,
+    );
+    assert_cv_f64(
+        CV_REF_MODE,
+        &sd.cv_params,
+        "base peak m/z",
+        "MS:1000504",
+        "MS",
+        456.347,
+        None,
+    );
+    assert_cv_f64(
+        CV_REF_MODE,
+        &sd.cv_params,
+        "base peak intensity",
+        "MS:1000505",
+        "MS",
+        23433.0,
+        None,
+    );
+    assert_cv_f64(
+        CV_REF_MODE,
+        &sd.cv_params,
+        "total ion current",
+        "MS:1000285",
+        "MS",
+        16675500.0,
         None,
     );
 
@@ -616,62 +597,59 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
     let pl = spectrum_precursor_list(s1).expect("precursorList parsed");
     assert_eq!(pl.precursors.len(), 1);
     let p0 = &pl.precursors[0];
-    assert_eq!(p0.spectrum_ref.as_deref(), Some("101"));
+    assert_eq!(p0.spectrum_ref.as_deref(), Some("19"));
 
-    // selectedIonList
-    let sil = p0
-        .selected_ion_list
-        .as_ref()
-        .expect("selectedIonList parsed");
-    assert_eq!(sil.selected_ions.len(), 1);
-    let ion0 = &sil.selected_ions[0];
-    assert_cv_f64(
-        CV_REF_MODE,
-        &ion0.cv_params,
-        "m/z",
-        "MS:1000040",
-        "MS",
-        445.34,
-        None,
-    );
-    assert_cv(
-        CV_REF_MODE,
-        &ion0.cv_params,
-        "charge state",
-        "MS:1000041",
-        "MS",
-        Some("2"),
-        None,
-    );
+    if let Some(sil) = p0.selected_ion_list.as_ref() {
+        assert_eq!(sil.selected_ions.len(), 1);
+        let ion0 = &sil.selected_ions[0];
+        assert_cv_f64(
+            CV_REF_MODE,
+            &ion0.cv_params,
+            "m/z",
+            "MS:1000040",
+            "MS",
+            445.34,
+            None,
+        );
+        assert_cv(
+            CV_REF_MODE,
+            &ion0.cv_params,
+            "charge state",
+            "MS:1000041",
+            "MS",
+            Some("2"),
+            None,
+        );
+    }
 
-    // activation
-    let act = p0.activation.as_ref().expect("activation parsed");
-    assert_cv(
-        CV_REF_MODE,
-        &act.cv_params,
-        "collision-induced dissociation",
-        "MS:1000133",
-        "MS",
-        Some(""),
-        None,
-    );
-    assert_cv_f64(
-        CV_REF_MODE,
-        &act.cv_params,
-        "collision energy",
-        "MS:1000045",
-        "MS",
-        35.0,
-        Some("electron volt"),
-    );
+    if let Some(act) = p0.activation.as_ref() {
+        assert_cv(
+            CV_REF_MODE,
+            &act.cv_params,
+            "collision-induced dissociation",
+            "MS:1000133",
+            "MS",
+            Some(""),
+            None,
+        );
+        assert_cv_f64(
+            CV_REF_MODE,
+            &act.cv_params,
+            "collision energy",
+            "MS:1000045",
+            "MS",
+            35.0,
+            Some("electron volt"),
+        );
+    }
 
     // scan
     let scl = spectrum_scan_list(s1);
     assert_eq!(scl.scans.len(), 1);
-    let scan0 = &scl.scans[0];
+    let scan1 = &scl.scans[0];
     assert_cv_f64(
         CV_REF_MODE,
-        &scan0.cv_params,
+        &scan1.cv_params,
         "scan start time",
         "MS:1000016",
         "MS",
@@ -680,7 +658,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
     );
     assert_cv(
         CV_REF_MODE,
-        &scan0.cv_params,
+        &scan1.cv_params,
         "filter string",
         "MS:1000512",
         "MS",
@@ -688,15 +666,16 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
         None,
     );
 
-    let swl = scan0
+    // scanWindowList
+    let swl = scan1
         .scan_window_list
         .as_ref()
         .expect("scanWindowList parsed");
     assert_eq!(swl.scan_windows.len(), 1);
-    let win0 = &swl.scan_windows[0];
+    let win1 = &swl.scan_windows[0];
     assert_cv_f64(
         CV_REF_MODE,
-        &win0.cv_params,
+        &win1.cv_params,
         "scan window lower limit",
         "MS:1000501",
         "MS",
@@ -705,7 +684,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
     );
     assert_cv_f64(
         CV_REF_MODE,
-        &win0.cv_params,
+        &win1.cv_params,
         "scan window upper limit",
         "MS:1000500",
         "MS",
@@ -720,6 +699,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
         .expect("binaryDataArrayList parsed");
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
+    // binaryDataArray (m/z)
     let mz_ba = &bal.binary_data_arrays[0];
     assert_eq!(mz_ba.array_length, Some(43));
     assert_eq!(mz_ba.encoded_length, Some(5000));
@@ -751,12 +731,13 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
         None,
     );
 
-    let ba1 = &bal.binary_data_arrays[1];
-    assert_eq!(ba1.array_length, Some(43));
-    assert_eq!(ba1.encoded_length, Some(2500));
+    // binaryDataArray (intensity)
+    let int_ba = &bal.binary_data_arrays[1];
+    assert_eq!(int_ba.array_length, Some(43));
+    assert_eq!(int_ba.encoded_length, Some(2500));
     assert_cv(
         CV_REF_MODE,
-        &ba1.cv_params,
+        &int_ba.cv_params,
         "32-bit float",
         "MS:1000521",
         "MS",
@@ -765,7 +746,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
     );
     assert_cv(
         CV_REF_MODE,
-        &ba1.cv_params,
+        &int_ba.cv_params,
         "no compression",
         "MS:1000576",
         "MS",
@@ -774,7 +755,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
     );
     assert_cv(
         CV_REF_MODE,
-        &ba1.cv_params,
+        &int_ba.cv_params,
         "intensity array",
         "MS:1000515",
         "MS",

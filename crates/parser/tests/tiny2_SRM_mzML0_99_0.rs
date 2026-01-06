@@ -497,6 +497,7 @@ fn tiny2_srm_mzml0_99_0_spectrum_s101() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let mz_ba = &bal.binary_data_arrays[0];
+
     assert_eq!(mz_ba.array_length, Some(2));
     assert_eq!(mz_ba.encoded_length, Some(22));
     assert_cv(
@@ -751,8 +752,8 @@ fn tiny2_srm_mzml0_99_0_spectrum_s102() {
     assert_cv(
         CV_REF_MODE,
         &ba1.cv_params,
-        "m/z array",
-        "MS:1000514",
+        "intensity array",
+        "MS:1000515",
         "MS",
         Some(""),
         None,

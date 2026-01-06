@@ -3,21 +3,16 @@ use std::{io::Cursor, str};
 use miniz_oxide::inflate::decompress_to_vec_zlib;
 use zstd::{bulk::decompress as zstd_decompress, stream::decode_all as zstd_decode_all};
 
-use crate::utilities::{attr_meta::*, cv_table, mzml::*};
+use crate::utilities::{
+    attr_meta::*,
+    cv_table,
+    mzml::*,
+    schema::{SchemaNode, SchemaTree, SchemaTree as Schema, TagId, schema},
+};
 
 const HEADER_SIZE: usize = 192;
 const INDEX_ENTRY_SIZE: usize = 32;
 const BLOCK_DIR_ENTRY_SIZE: usize = 32;
-
-const ACC_MZ_ARRAY: u32 = 1_000_514;
-const ACC_INTENSITY_ARRAY: u32 = 1_000_515;
-const ACC_TIME_ARRAY: u32 = 1_000_595;
-
-const ACC_32BIT_FLOAT: u32 = 1_000_521;
-const ACC_64BIT_FLOAT: u32 = 1_000_523;
-
-const ACC_ZLIB_COMPRESSION: u32 = 1_000_574;
-const ACC_NO_COMPRESSION: u32 = 1_000_576;
 
 const HDR_CODEC_MASK: u8 = 0x0F;
 const HDR_CODEC_ZLIB: u8 = 0;
@@ -31,44 +26,255 @@ const HDR_ARRAY_FILTER_OFF: usize = 178;
 const ARRAY_FILTER_NONE: u8 = 0;
 const ARRAY_FILTER_BYTE_SHUFFLE: u8 = 1;
 
-const ACC_ISO_TARGET_MZ: u32 = 1_000_827;
-const ACC_ISO_LOWER_OFFSET: u32 = 1_000_828;
-const ACC_ISO_UPPER_OFFSET: u32 = 1_000_829;
+const TAG_UNKNOWN: u8 = TagId::Unknown as u8;
+const TAG_BINARY_DATA_ARRAY: u8 = TagId::BinaryDataArray as u8;
+const TAG_FILE_DESCRIPTION: u8 = TagId::FileDescription as u8;
+const TAG_SOURCE_FILE: u8 = TagId::SourceFile as u8;
+const TAG_CONTACT: u8 = TagId::Contact as u8;
+const TAG_SCAN_SETTINGS: u8 = TagId::ScanSettings as u8;
+const TAG_TARGET: u8 = TagId::Target as u8;
+const TAG_INSTRUMENT: u8 = TagId::Instrument as u8;
+const TAG_COMPONENT_SOURCE: u8 = TagId::ComponentSource as u8;
+const TAG_COMPONENT_ANALYZER: u8 = TagId::ComponentAnalyzer as u8;
+const TAG_COMPONENT_DETECTOR: u8 = TagId::ComponentDetector as u8;
+const TAG_SPECTRUM_DESCRIPTION: u8 = TagId::SpectrumDescription as u8;
+const TAG_SCAN: u8 = TagId::Scan as u8;
+const TAG_SCAN_WINDOW: u8 = TagId::ScanWindow as u8;
+const TAG_ISOLATION_WINDOW: u8 = TagId::IsolationWindow as u8;
+const TAG_SELECTED_ION: u8 = TagId::SelectedIon as u8;
+const TAG_ACTIVATION: u8 = TagId::Activation as u8;
+const TAG_BINARY_DATA_ARRAY_LIST: u8 = TagId::BinaryDataArrayList as u8;
 
-const ACC_MZ: u32 = 1_000_040;
-const ACC_CHARGE_STATE: u32 = 1_000_041;
+#[inline]
+fn tag_from_u8(b: u8) -> TagId {
+    match b {
+        TAG_FILE_DESCRIPTION => TagId::FileDescription,
+        TAG_SOURCE_FILE => TagId::SourceFile,
+        TAG_CONTACT => TagId::Contact,
+        TAG_SCAN_SETTINGS => TagId::ScanSettings,
+        TAG_TARGET => TagId::Target,
+        TAG_INSTRUMENT => TagId::Instrument,
+        TAG_COMPONENT_SOURCE => TagId::ComponentSource,
+        TAG_COMPONENT_ANALYZER => TagId::ComponentAnalyzer,
+        TAG_COMPONENT_DETECTOR => TagId::ComponentDetector,
+        TAG_SPECTRUM_DESCRIPTION => TagId::SpectrumDescription,
+        TAG_SCAN => TagId::Scan,
+        TAG_SCAN_WINDOW => TagId::ScanWindow,
+        TAG_ISOLATION_WINDOW => TagId::IsolationWindow,
+        TAG_SELECTED_ION => TagId::SelectedIon,
+        TAG_ACTIVATION => TagId::Activation,
+        TAG_BINARY_DATA_ARRAY_LIST => TagId::BinaryDataArrayList,
+        TAG_BINARY_DATA_ARRAY => TagId::BinaryDataArray,
+        TAG_UNKNOWN => TagId::Unknown,
+        _ => TagId::Unknown,
+    }
+}
 
-const ACC_COLLISION_INDUCED_DISSOCIATION: u32 = 1_000_133;
-const ACC_IN_SOURCE_CID: u32 = 1_001_880;
-const ACC_COLLISION_ENERGY: u32 = 1_000_045;
+#[derive(Clone)]
+struct MetaCvParam {
+    tag: TagId,
+    cv_ref_code: u8,
+    accession_tail: u32,
+    cv: CvParam,
+}
 
-const ACC_CENTROID_SPECTRUM: u32 = 1_000_127;
-const ACC_LOWEST_MZ: u32 = 1_000_528;
-const ACC_HIGHEST_MZ: u32 = 1_000_527;
-const ACC_BASE_PEAK_MZ: u32 = 1_000_504;
-const ACC_BASE_PEAK_INTENSITY: u32 = 1_000_505;
-const ACC_TOTAL_ION_CURRENT: u32 = 1_000_285;
+#[inline]
+fn effective_tag(schema: Option<&Schema>, m: &MetaCvParam, hint: Option<TagId>) -> TagId {
+    let _ = schema;
+    let _ = hint;
+    if m.tag != TagId::Unknown {
+        m.tag
+    } else {
+        TagId::Unknown
+    }
+}
 
-const ACC_SCAN_TIME: u32 = 1_000_016;
-const ACC_FILTER_STRING: u32 = 1_000_512;
+#[derive(Clone, Copy)]
+struct SchemaNodes<'a> {
+    file_description: Option<&'a SchemaNode>,
+    source_file: Option<&'a SchemaNode>,
+    contact: Option<&'a SchemaNode>,
 
-const ACC_SCAN_MZ_LOWER_LIMIT: u32 = 1_000_501;
-const ACC_SCAN_MZ_UPPER_LIMIT: u32 = 1_000_500;
+    scan_settings: Option<&'a SchemaNode>,
+    target: Option<&'a SchemaNode>,
 
-const ACC_XCALIBUR_RAW_FILE: u32 = 1_000_563;
-const ACC_SHA1: u32 = 1_000_569;
+    instrument: Option<&'a SchemaNode>,
+    component_source: Option<&'a SchemaNode>,
+    component_analyzer: Option<&'a SchemaNode>,
+    component_detector: Option<&'a SchemaNode>,
 
-const ACC_CONTACT_NAME: u32 = 1_000_586;
-const ACC_CONTACT_ADDRESS: u32 = 1_000_587;
-const ACC_CONTACT_URL: u32 = 1_000_588;
-const ACC_CONTACT_EMAIL: u32 = 1_000_589;
+    spectrum_description: Option<&'a SchemaNode>,
+    scan: Option<&'a SchemaNode>,
+    scan_window: Option<&'a SchemaNode>,
 
-const ACC_POSITIVE_SCAN: u32 = 1_000_130;
-const ACC_FULL_SCAN: u32 = 1_000_498;
+    isolation_window: Option<&'a SchemaNode>,
+    selected_ion: Option<&'a SchemaNode>,
+    activation: Option<&'a SchemaNode>,
+}
 
-const ACC_PRODUCT_ION_MZ: u32 = 1_001_225;
-const ACC_DWELL_TIME: u32 = 1_000_502;
-const ACC_COMPLETION_TIME: u32 = 1_000_747;
+#[inline]
+fn child_node<'a>(parent: Option<&'a SchemaNode>, tag: TagId) -> Option<&'a SchemaNode> {
+    let p = parent?;
+    let key = p.child_key_for_tag(tag)?;
+    p.children.get(key)
+}
+
+fn find_descendant<'a>(node: Option<&'a SchemaNode>, tag: TagId) -> Option<&'a SchemaNode> {
+    let n = node?;
+    if n.self_tags.iter().any(|&t| t == tag) {
+        return Some(n);
+    }
+    for child in n.children.values() {
+        if let Some(found) = find_descendant(Some(child), tag) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+impl<'a> SchemaNodes<'a> {
+    #[inline]
+    fn new(tree: Option<&'a SchemaTree>) -> Self {
+        let file_description = tree.and_then(|t| t.root_by_tag(TagId::FileDescription));
+        let source_file = child_node(file_description, TagId::SourceFile)
+            .or_else(|| tree.and_then(|t| t.root_by_tag(TagId::SourceFile)));
+        let contact = child_node(file_description, TagId::Contact)
+            .or_else(|| tree.and_then(|t| t.root_by_tag(TagId::Contact)));
+
+        let scan_settings = tree.and_then(|t| t.root_by_tag(TagId::ScanSettings));
+        let target = child_node(scan_settings, TagId::Target)
+            .or_else(|| tree.and_then(|t| t.root_by_tag(TagId::Target)));
+
+        let instrument = tree.and_then(|t| t.root_by_tag(TagId::Instrument));
+        let component_source = tree
+            .and_then(|t| t.root_by_tag(TagId::ComponentSource))
+            .or_else(|| find_descendant(instrument, TagId::ComponentSource));
+        let component_analyzer = tree
+            .and_then(|t| t.root_by_tag(TagId::ComponentAnalyzer))
+            .or_else(|| find_descendant(instrument, TagId::ComponentAnalyzer));
+        let component_detector = tree
+            .and_then(|t| t.root_by_tag(TagId::ComponentDetector))
+            .or_else(|| find_descendant(instrument, TagId::ComponentDetector));
+
+        let spectrum_description = tree.and_then(|t| t.root_by_tag(TagId::SpectrumDescription));
+        let scan = tree
+            .and_then(|t| t.root_by_tag(TagId::Scan))
+            .or_else(|| find_descendant(spectrum_description, TagId::Scan));
+        let scan_window = tree
+            .and_then(|t| t.root_by_tag(TagId::ScanWindow))
+            .or_else(|| find_descendant(scan, TagId::ScanWindow));
+
+        let isolation_window = tree.and_then(|t| t.root_by_tag(TagId::IsolationWindow));
+        let selected_ion = tree.and_then(|t| t.root_by_tag(TagId::SelectedIon));
+        let activation = tree.and_then(|t| t.root_by_tag(TagId::Activation));
+
+        Self {
+            file_description,
+            source_file,
+            contact,
+            scan_settings,
+            target,
+            instrument,
+            component_source,
+            component_analyzer,
+            component_detector,
+            spectrum_description,
+            scan,
+            scan_window,
+            isolation_window,
+            selected_ion,
+            activation,
+        }
+    }
+}
+
+#[inline]
+fn node_has_accession(node: &SchemaNode, acc: &str) -> bool {
+    node.accessions.iter().any(|a| a == acc)
+}
+
+#[inline]
+fn schema_tag_in_nodes(
+    schema: Option<&Schema>,
+    m: &MetaCvParam,
+    hint: Option<TagId>,
+    candidates: &[(TagId, Option<&SchemaNode>)],
+) -> TagId {
+    if m.tag != TagId::Unknown {
+        return m.tag;
+    }
+
+    if let Some(acc) = m.cv.accession.as_deref() {
+        let mut found = TagId::Unknown;
+        for (tag, node) in candidates {
+            let Some(node) = node else { continue };
+            if node_has_accession(node, acc) {
+                if found != TagId::Unknown && found != *tag {
+                    found = TagId::Unknown;
+                    break;
+                }
+                found = *tag;
+            }
+        }
+        if found != TagId::Unknown {
+            return found;
+        }
+    }
+
+    effective_tag(schema, m, hint)
+}
+
+#[inline]
+fn split_attr_value(params: &mut Vec<MetaCvParam>, attr_tail: u32) -> Option<String> {
+    let mut v: Option<String> = None;
+    params.retain(|m| {
+        if is_attr_param(&m.cv) && parse_acc_tail(m.cv.accession.as_deref()) == attr_tail {
+            v = attr_string_value(&m.cv);
+            false
+        } else {
+            true
+        }
+    });
+    v
+}
+
+#[inline]
+fn split_id_attr(params: &mut Vec<MetaCvParam>) -> Option<String> {
+    split_attr_value(params, ACC_ATTR_ID)
+}
+
+#[inline]
+fn split_name_attr(params: &mut Vec<MetaCvParam>) -> Option<String> {
+    split_attr_value(params, ACC_ATTR_NAME)
+}
+
+#[inline]
+fn split_version_attr(params: &mut Vec<MetaCvParam>) -> Option<String> {
+    split_attr_value(params, ACC_ATTR_VERSION)
+}
+
+#[inline]
+fn split_instrument_configuration_ref_attr(params: &mut Vec<MetaCvParam>) -> Option<String> {
+    split_attr_value(params, ACC_ATTR_INSTRUMENT_CONFIGURATION_REF)
+}
+
+#[inline]
+fn collect_ref_attrs(params: &mut Vec<MetaCvParam>) -> Vec<String> {
+    let mut refs = Vec::<String>::new();
+    params.retain(|m| {
+        if is_attr_param(&m.cv) && parse_acc_tail(m.cv.accession.as_deref()) == ACC_ATTR_REF {
+            if let Some(v) = attr_string_value(&m.cv) {
+                if !v.is_empty() {
+                    refs.push(v);
+                }
+            }
+            false
+        } else {
+            true
+        }
+    });
+    refs
+}
 
 #[derive(Clone, Copy)]
 struct BlockDirEntry {
@@ -363,74 +569,85 @@ fn decompress_meta_if_needed<'a>(
 }
 
 #[inline]
-fn is_isolation_window_tail(t: u32) -> bool {
-    matches!(
-        t,
-        ACC_ISO_TARGET_MZ | ACC_ISO_LOWER_OFFSET | ACC_ISO_UPPER_OFFSET
-    )
-}
-
-#[inline]
-fn is_selected_ion_tail(t: u32) -> bool {
-    matches!(t, ACC_MZ | ACC_CHARGE_STATE)
-}
-
-#[inline]
-fn is_activation_tail(t: u32) -> bool {
-    matches!(
-        t,
-        ACC_IN_SOURCE_CID | ACC_COLLISION_INDUCED_DISSOCIATION | ACC_COLLISION_ENERGY
-    )
-}
-
-#[inline]
-fn is_spectrum_description_tail(t: u32) -> bool {
-    matches!(
-        t,
-        ACC_CENTROID_SPECTRUM
-            | ACC_LOWEST_MZ
-            | ACC_HIGHEST_MZ
-            | ACC_BASE_PEAK_MZ
-            | ACC_BASE_PEAK_INTENSITY
-            | ACC_TOTAL_ION_CURRENT
-    )
-}
-
-#[inline]
-fn is_scan_tail(t: u32) -> bool {
-    matches!(t, ACC_SCAN_TIME | ACC_FILTER_STRING)
-}
-
-#[inline]
-fn is_scan_window_tail(t: u32) -> bool {
-    matches!(t, ACC_SCAN_MZ_LOWER_LIMIT | ACC_SCAN_MZ_UPPER_LIMIT)
-}
-
-#[inline]
-fn is_source_file_tail(t: u32) -> bool {
-    matches!(t, ACC_XCALIBUR_RAW_FILE | ACC_SHA1)
-}
-
-#[inline]
-fn is_contact_tail(t: u32) -> bool {
-    matches!(
-        t,
-        ACC_CONTACT_NAME | ACC_CONTACT_ADDRESS | ACC_CONTACT_URL | ACC_CONTACT_EMAIL
-    )
-}
-
-#[inline]
 fn base64_encoded_len(byte_len: usize) -> usize {
     ((byte_len + 2) / 3) * 4
 }
 
 #[inline]
-fn float_acc_from_fmt(fmt: u8) -> u32 {
-    if fmt == 1 {
-        ACC_32BIT_FLOAT
-    } else {
-        ACC_64BIT_FLOAT
+fn fmt_elem_size(fmt: u8) -> Result<usize, String> {
+    match fmt {
+        1 => Ok(4),
+        2 => Ok(8),
+        _ => Err("Invalid float format".to_string()),
     }
+}
+
+#[inline]
+fn cv_table_name(key: &str) -> Option<String> {
+    cv_table::get(key)
+        .and_then(|v| {
+            v.as_str()
+                .or_else(|| v.get("name").and_then(|n| n.as_str()))
+        })
+        .map(|s| s.to_string())
+}
+
+#[inline]
+fn ms_tail(schema: Option<&Schema>, name: &str) -> Option<u32> {
+    let _ = schema;
+    match name {
+        "m/z array" => Some(1_000_514),
+        "intensity array" => Some(1_000_515),
+        "time array" => Some(1_000_595),
+        "32-bit float" => Some(1_000_521),
+        "64-bit float" => Some(1_000_523),
+        "no compression" => Some(1_000_576),
+        "zlib compression" => Some(1_000_574),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct MsBinaryTails {
+    mz_array: Option<u32>,
+    intensity_array: Option<u32>,
+    time_array: Option<u32>,
+    f32: Option<u32>,
+    f64: Option<u32>,
+    no_compression: Option<u32>,
+    zlib_compression: Option<u32>,
+}
+
+impl MsBinaryTails {
+    #[inline]
+    fn float_tail(self, fmt: u8) -> Option<u32> {
+        match fmt {
+            1 => self.f32,
+            2 => self.f64,
+            _ => None,
+        }
+    }
+}
+
+#[inline]
+fn ms_cv_param(schema: Option<&Schema>, accession_tail: Option<u32>) -> CvParam {
+    let _ = schema;
+    let accession = accession_tail.map(|t| format!("MS:{:07}", t));
+    let mut p = CvParam {
+        cv_ref: Some("MS".to_string()),
+        accession,
+        name: String::new(),
+        value: Some(String::new()),
+        unit_cv_ref: None,
+        unit_name: None,
+        unit_accession: None,
+    };
+
+    if let Some(k) = p.accession.as_deref() {
+        p.name = cv_table_name(k).unwrap_or_default();
+    }
+
+    p
 }
 
 #[inline]
@@ -458,127 +675,149 @@ fn attr_string_value(p: &CvParam) -> Option<String> {
     (is_attr_param(p) && !p.name.is_empty()).then(|| p.name.clone())
 }
 
-/// <precursorList>
-fn infer_precursor_list_from_spectrum_cv(params: &mut Vec<CvParam>) -> Option<PrecursorList> {
-    let mut spectrum_ref: Option<String> = None;
-    let mut iso = Vec::<CvParam>::new();
-    let mut sel = Vec::<CvParam>::new();
-    let mut act = Vec::<CvParam>::new();
-
-    let mut rest = Vec::<CvParam>::with_capacity(params.len());
-    for p in params.drain(..) {
-        let tail = parse_acc_tail(p.accession.as_deref());
-
-        if is_attr_param(&p) && tail == ACC_ATTR_SPECTRUM_REF {
-            if spectrum_ref.is_none() {
-                spectrum_ref = attr_string_value(&p);
-            }
-            continue;
-        }
-
-        if is_isolation_window_tail(tail) {
-            iso.push(p);
-        } else if is_selected_ion_tail(tail) {
-            sel.push(p);
-        } else if is_activation_tail(tail) {
-            act.push(p);
-        } else {
-            rest.push(p);
-        }
-    }
-    *params = rest;
-
-    if iso.is_empty() && sel.is_empty() && act.is_empty() && spectrum_ref.is_none() {
-        return None;
-    }
-
-    let isolation_window = (!iso.is_empty()).then(|| IsolationWindow {
-        cv_params: iso,
-        ..Default::default()
-    });
-
-    let selected_ion_list = (!sel.is_empty()).then(|| SelectedIonList {
-        count: Some(1),
-        selected_ions: vec![SelectedIon {
-            cv_params: sel,
-            ..Default::default()
-        }],
-    });
-
-    let activation = (!act.is_empty()).then(|| Activation {
-        cv_params: act,
-        ..Default::default()
-    });
-
-    Some(PrecursorList {
-        count: Some(1),
-        precursors: vec![Precursor {
-            spectrum_ref,
-            isolation_window,
-            selected_ion_list,
-            activation,
-            ..Default::default()
-        }],
-    })
+#[inline]
+fn filter_spectrum_top_level_cv_params(params: &mut Vec<CvParam>) {
+    params.retain(|p| !(p.cv_ref.as_deref() == Some("MS") && p.name.is_empty()));
 }
 
-/// <spectrumDescription>
-fn infer_spectrum_description_from_spectrum_cv(
-    params: &mut Vec<CvParam>,
-) -> Option<SpectrumDescription> {
-    let mut desc = Vec::<CvParam>::new();
-    let mut scan = Vec::<CvParam>::new();
-    let mut scan_window = Vec::<CvParam>::new();
+#[inline]
+fn infer_term_cv_ref_code(mut code: u8, tail: u32) -> u8 {
+    if tail == 0 || cv_ref_prefix_from_code(code).is_some() {
+        return code;
+    }
+    let ms_key = format!("MS:{:07}", tail);
+    let uo_key = format!("UO:{:07}", tail);
+    if cv_table::get(&ms_key).is_some() {
+        code = CV_CODE_MS;
+    } else if cv_table::get(&uo_key).is_some() {
+        code = CV_CODE_UO;
+    } else {
+        code = CV_CODE_B000;
+    }
+    code
+}
 
-    let mut rest = Vec::<CvParam>::with_capacity(params.len());
-    for p in params.drain(..) {
-        let tail = parse_acc_tail(p.accession.as_deref());
-        if is_spectrum_description_tail(tail) {
-            desc.push(p);
-        } else if is_scan_tail(tail) {
-            scan.push(p);
-        } else if is_scan_window_tail(tail) {
-            scan_window.push(p);
-        } else {
-            rest.push(p);
+#[inline]
+fn infer_unit_cv_ref_code(mut code: u8, tail: u32) -> u8 {
+    if tail == 0 || cv_ref_prefix_from_code(code).is_some() {
+        return code;
+    }
+    let uo_key = format!("UO:{:07}", tail);
+    let ms_key = format!("MS:{:07}", tail);
+    if cv_table::get(&uo_key).is_some() {
+        code = CV_CODE_UO;
+    } else if cv_table::get(&ms_key).is_some() {
+        code = CV_CODE_MS;
+    } else {
+        code = CV_CODE_B000;
+    }
+    code
+}
+
+#[inline]
+fn attr_accession(tail: u32) -> Option<String> {
+    (tail >= 9_900_000).then(|| format!("{}:{:07}", CV_REF_ATTR, tail))
+}
+
+#[inline]
+fn cv_code_score(s: &[u8]) -> usize {
+    let mut n = 0usize;
+    for &b in s {
+        if cv_ref_prefix_from_code(b).is_some() || b == CV_CODE_B000 {
+            n += 1;
         }
     }
-    *params = rest;
+    n
+}
 
-    if desc.is_empty() && scan.is_empty() && scan_window.is_empty() {
-        return None;
-    }
+#[inline]
+fn is_target_boundary(p: &CvParam) -> bool {
+    const ACC_ISO_TARGET_MZ: u32 = 1_000_827; // MS:1000827
+    parse_acc_tail(p.accession.as_deref()) == ACC_ISO_TARGET_MZ
+}
 
-    let scan_window_list = (!scan_window.is_empty()).then(|| ScanWindowList {
-        count: Some(1),
-        scan_windows: vec![ScanWindow {
-            cv_params: scan_window,
-            ..Default::default()
-        }],
+/// <scanSettings>
+#[inline]
+fn build_scan_settings_from_cv_params(
+    schema: Option<&Schema>,
+    schema_nodes: SchemaNodes<'_>,
+    mut params: Vec<MetaCvParam>,
+) -> ScanSettings {
+    let id = split_id_attr(&mut params);
+    let instrument_configuration_ref = split_instrument_configuration_ref_attr(&mut params);
+
+    let source_file_refs = collect_ref_attrs(&mut params);
+    let source_file_ref_list = (!source_file_refs.is_empty()).then(|| SourceFileRefList {
+        count: Some(source_file_refs.len()),
+        source_file_refs: source_file_refs
+            .into_iter()
+            .map(|r| SourceFileRef { r#ref: r })
+            .collect(),
     });
 
-    let scan_obj = if scan.is_empty() && scan_window_list.is_none() {
+    let mut target_cv = Vec::<CvParam>::new();
+    let mut rest = Vec::with_capacity(params.len());
+
+    for m in params.drain(..) {
+        let tag = schema_tag_in_nodes(
+            schema,
+            &m,
+            Some(TagId::Target),
+            &[(TagId::Target, schema_nodes.target)],
+        );
+        if tag == TagId::Target {
+            target_cv.push(m.cv);
+        } else {
+            rest.push(m);
+        }
+    }
+    let rest = rest.into_iter().map(|m| m.cv).collect::<Vec<_>>();
+
+    let target_list = if target_cv.is_empty() {
         None
     } else {
-        Some(Scan {
-            cv_params: scan,
-            scan_window_list,
-            ..Default::default()
+        let mut targets: Vec<Target> = Vec::new();
+        let mut cur: Vec<CvParam> = Vec::new();
+
+        for p in target_cv {
+            if is_target_boundary(&p) && !cur.is_empty() {
+                targets.push(Target {
+                    cv_params: cur,
+                    ..Default::default()
+                });
+                cur = Vec::new();
+            }
+            cur.push(p);
+        }
+        if !cur.is_empty() {
+            targets.push(Target {
+                cv_params: cur,
+                ..Default::default()
+            });
+        }
+
+        Some(TargetList {
+            count: Some(targets.len()),
+            targets,
         })
     };
 
-    Some(SpectrumDescription {
-        cv_params: desc,
-        scan_list: scan_obj.map(|s| ScanList {
-            count: Some(1),
-            scans: vec![s],
-        }),
+    ScanSettings {
+        id,
+        instrument_configuration_ref,
+        source_file_ref_list,
+        target_list,
+        cv_params: rest,
         ..Default::default()
-    })
+    }
 }
 
 /// <fileDescription>
-fn split_file_description_from_cv_params(mut params: Vec<CvParam>) -> FileDescription {
+fn split_file_description_from_cv_params(
+    schema: Option<&Schema>,
+    schema_nodes: SchemaNodes<'_>,
+    mut params: Vec<MetaCvParam>,
+) -> FileDescription {
     let mut file_content_cv = Vec::<CvParam>::new();
     let mut contact_cv = Vec::<CvParam>::new();
 
@@ -607,41 +846,55 @@ fn split_file_description_from_cv_params(mut params: Vec<CvParam>) -> FileDescri
         out.push(sf);
     }
 
-    for p in params.drain(..) {
-        let tail = parse_acc_tail(p.accession.as_deref());
+    for m in params.drain(..) {
+        let tag = schema_tag_in_nodes(
+            schema,
+            &m,
+            None,
+            &[
+                (TagId::SourceFile, schema_nodes.source_file),
+                (TagId::Contact, schema_nodes.contact),
+            ],
+        );
 
-        if is_attr_param(&p) {
-            let v = attr_string_value(&p).unwrap_or_default();
-            if v.is_empty() {
-                continue;
-            }
-
-            if tail == ACC_ATTR_ID {
-                if !cur_id.is_empty() && cur_id != v {
-                    flush_source_file(
-                        &mut source_files,
-                        &mut cur_id,
-                        &mut cur_name,
-                        &mut cur_location,
-                        &mut cur_cv,
-                    );
+        if tag == TagId::SourceFile {
+            if is_attr_param(&m.cv) {
+                let tail = parse_acc_tail(m.cv.accession.as_deref());
+                let v = attr_string_value(&m.cv).unwrap_or_default();
+                if v.is_empty() {
+                    continue;
                 }
-                cur_id = v;
-            } else if tail == ACC_ATTR_NAME {
-                cur_name = v;
-            } else if tail == ACC_ATTR_LOCATION {
-                cur_location = v;
+
+                if tail == ACC_ATTR_ID {
+                    if !cur_id.is_empty() && cur_id != v {
+                        flush_source_file(
+                            &mut source_files,
+                            &mut cur_id,
+                            &mut cur_name,
+                            &mut cur_location,
+                            &mut cur_cv,
+                        );
+                    }
+                    cur_id = v;
+                    continue;
+                } else if tail == ACC_ATTR_NAME {
+                    cur_name = v;
+                    continue;
+                } else if tail == ACC_ATTR_LOCATION {
+                    cur_location = v;
+                    continue;
+                }
             }
+            cur_cv.push(m.cv);
             continue;
         }
 
-        if is_source_file_tail(tail) {
-            cur_cv.push(p);
-        } else if is_contact_tail(tail) {
-            contact_cv.push(p);
-        } else {
-            file_content_cv.push(p);
+        if tag == TagId::Contact {
+            contact_cv.push(m.cv);
+            continue;
         }
+
+        file_content_cv.push(m.cv);
     }
 
     flush_source_file(
@@ -669,12 +922,201 @@ fn split_file_description_from_cv_params(mut params: Vec<CvParam>) -> FileDescri
     fd
 }
 
+/// <precursorList>
+fn infer_precursor_from_cv(
+    schema: Option<&Schema>,
+    schema_nodes: SchemaNodes<'_>,
+    params: &mut Vec<MetaCvParam>,
+) -> Option<Precursor> {
+    let mut spectrum_ref: Option<String> = None;
+    let mut iso = Vec::<CvParam>::new();
+    let mut sel = Vec::<CvParam>::new();
+    let mut act = Vec::<CvParam>::new();
+
+    let mut rest = Vec::<MetaCvParam>::with_capacity(params.len());
+    for m in params.drain(..) {
+        if is_attr_param(&m.cv)
+            && parse_acc_tail(m.cv.accession.as_deref()) == ACC_ATTR_SPECTRUM_REF
+        {
+            if spectrum_ref.is_none() {
+                spectrum_ref = attr_string_value(&m.cv);
+            }
+            continue;
+        }
+
+        let tag0 = schema_tag_in_nodes(
+            schema,
+            &m,
+            None,
+            &[
+                (TagId::SelectedIon, schema_nodes.selected_ion),
+                (TagId::IsolationWindow, schema_nodes.isolation_window),
+                (TagId::Activation, schema_nodes.activation),
+            ],
+        );
+
+        let tag = if tag0 == TagId::Unknown && m.cv_ref_code == CV_CODE_MS {
+            match m.accession_tail {
+                1_000_040 | 1_000_041 | 1_000_042 => TagId::SelectedIon,
+                1_000_827 | 1_000_828 | 1_000_829 => TagId::IsolationWindow,
+                1_000_133 | 1_000_045 => TagId::Activation,
+                _ => TagId::Unknown,
+            }
+        } else {
+            tag0
+        };
+
+        if tag == TagId::IsolationWindow {
+            iso.push(m.cv);
+        } else if tag == TagId::SelectedIon {
+            sel.push(m.cv);
+        } else if tag == TagId::Activation {
+            act.push(m.cv);
+        } else {
+            rest.push(m);
+        }
+    }
+    *params = rest;
+
+    if iso.is_empty() && sel.is_empty() && act.is_empty() && spectrum_ref.is_none() {
+        return None;
+    }
+
+    let isolation_window = (!iso.is_empty()).then(|| IsolationWindow {
+        cv_params: iso,
+        ..Default::default()
+    });
+
+    let selected_ion_list = (!sel.is_empty()).then(|| SelectedIonList {
+        count: Some(1),
+        selected_ions: vec![SelectedIon {
+            cv_params: sel,
+            ..Default::default()
+        }],
+    });
+
+    let activation = (!act.is_empty()).then(|| Activation {
+        cv_params: act,
+        ..Default::default()
+    });
+
+    Some(Precursor {
+        spectrum_ref,
+        isolation_window,
+        selected_ion_list,
+        activation,
+        ..Default::default()
+    })
+}
+
+/// <precursorList>
+fn infer_precursor_list_from_spectrum_cv(
+    schema: Option<&Schema>,
+    schema_nodes: SchemaNodes<'_>,
+    params: &mut Vec<MetaCvParam>,
+) -> Option<PrecursorList> {
+    infer_precursor_from_cv(schema, schema_nodes, params).map(|p| PrecursorList {
+        count: Some(1),
+        precursors: vec![p],
+    })
+}
+
+/// <spectrumDescription>
+fn infer_spectrum_description_from_spectrum_cv(
+    schema: Option<&Schema>,
+    schema_nodes: SchemaNodes<'_>,
+    params: &mut Vec<MetaCvParam>,
+) -> Option<SpectrumDescription> {
+    let mut desc = Vec::<CvParam>::new();
+    let mut scan = Vec::<CvParam>::new();
+    let mut scan_window = Vec::<CvParam>::new();
+
+    let mut rest = Vec::<MetaCvParam>::with_capacity(params.len());
+    for m in params.drain(..) {
+        let tag = schema_tag_in_nodes(
+            schema,
+            &m,
+            None,
+            &[
+                (
+                    TagId::SpectrumDescription,
+                    schema_nodes.spectrum_description,
+                ),
+                (TagId::Scan, schema_nodes.scan),
+                (TagId::ScanWindow, schema_nodes.scan_window),
+            ],
+        );
+
+        if tag == TagId::SpectrumDescription {
+            desc.push(m.cv);
+        } else if tag == TagId::Scan {
+            scan.push(m.cv);
+        } else if tag == TagId::ScanWindow {
+            scan_window.push(m.cv);
+        } else {
+            rest.push(m);
+        }
+    }
+    *params = rest;
+
+    if desc.is_empty() && scan.is_empty() && scan_window.is_empty() {
+        return None;
+    }
+
+    let scan_window_list = (!scan_window.is_empty()).then(|| {
+        let mut windows: Vec<ScanWindow> = Vec::new();
+        let mut cur: Vec<CvParam> = Vec::new();
+
+        for p in scan_window {
+            if p.name == "scan window lower limit" && !cur.is_empty() {
+                windows.push(ScanWindow {
+                    cv_params: cur,
+                    ..Default::default()
+                });
+                cur = Vec::new();
+            }
+            cur.push(p);
+        }
+
+        if !cur.is_empty() {
+            windows.push(ScanWindow {
+                cv_params: cur,
+                ..Default::default()
+            });
+        }
+
+        ScanWindowList {
+            count: Some(windows.len()),
+            scan_windows: windows,
+        }
+    });
+
+    let scan_obj = if scan.is_empty() && scan_window_list.is_none() {
+        None
+    } else {
+        Some(Scan {
+            cv_params: scan,
+            scan_window_list,
+            ..Default::default()
+        })
+    };
+
+    Some(SpectrumDescription {
+        cv_params: desc,
+        scan_list: scan_obj.map(|s| ScanList {
+            count: Some(1),
+            scans: vec![s],
+        }),
+        ..Default::default()
+    })
+}
+
 /// <spectrum>
 fn split_spectrum_attrs(
     item_idx: usize,
     x_len: u32,
-    params: Vec<CvParam>,
-) -> (String, Option<u32>, Option<usize>, Vec<CvParam>) {
+    params: Vec<MetaCvParam>,
+) -> (String, Option<u32>, Option<usize>, Vec<MetaCvParam>) {
     split_item_attrs(item_idx, x_len, params, "spectrum")
 }
 
@@ -682,8 +1124,8 @@ fn split_spectrum_attrs(
 fn split_chromatogram_attrs(
     item_idx: usize,
     x_len: u32,
-    params: Vec<CvParam>,
-) -> (String, Option<u32>, Option<usize>, Vec<CvParam>) {
+    params: Vec<MetaCvParam>,
+) -> (String, Option<u32>, Option<usize>, Vec<MetaCvParam>) {
     split_item_attrs(item_idx, x_len, params, "chromatogram")
 }
 
@@ -691,24 +1133,24 @@ fn split_chromatogram_attrs(
 fn split_item_attrs(
     item_idx: usize,
     x_len: u32,
-    params: Vec<CvParam>,
+    params: Vec<MetaCvParam>,
     prefix: &str,
-) -> (String, Option<u32>, Option<usize>, Vec<CvParam>) {
+) -> (String, Option<u32>, Option<usize>, Vec<MetaCvParam>) {
     let mut id: Option<String> = None;
     let mut index: Option<u32> = None;
     let mut default_array_length: Option<usize> = None;
 
     let mut out = Vec::with_capacity(params.len());
-    for p in params {
-        if is_attr_param(&p) {
-            let tail = parse_acc_tail(p.accession.as_deref());
+    for m in params {
+        if is_attr_param(&m.cv) {
+            let tail = parse_acc_tail(m.cv.accession.as_deref());
             if tail == ACC_ATTR_ID {
-                id = attr_string_value(&p);
+                id = attr_string_value(&m.cv);
                 continue;
             }
             if tail == ACC_ATTR_INDEX {
                 index = Some(
-                    attr_string_value(&p)
+                    attr_string_value(&m.cv)
                         .and_then(|s| s.parse::<u32>().ok())
                         .unwrap_or(item_idx as u32),
                 );
@@ -716,14 +1158,14 @@ fn split_item_attrs(
             }
             if tail == ACC_ATTR_DEFAULT_ARRAY_LENGTH {
                 default_array_length = Some(
-                    attr_string_value(&p)
+                    attr_string_value(&m.cv)
                         .and_then(|s| s.parse::<usize>().ok())
                         .unwrap_or(x_len as usize),
                 );
                 continue;
             }
         }
-        out.push(p);
+        out.push(m);
     }
 
     (
@@ -734,46 +1176,11 @@ fn split_item_attrs(
     )
 }
 
-#[inline]
-fn filter_spectrum_top_level_cv_params(params: &mut Vec<CvParam>) {
-    params.retain(|p| {
-        let tail = parse_acc_tail(p.accession.as_deref());
-        if tail == ACC_POSITIVE_SCAN || tail == ACC_FULL_SCAN {
-            return false;
-        }
-        !(p.cv_ref.as_deref() == Some("MS") && p.name.is_empty())
-    });
-}
-
-#[inline]
-fn make_binary_data_array(
-    array_len: u32,
-    elem_size: usize,
-    fmt: u8,
-    array_accession_tail: u32,
-    decoded_f32: Vec<f32>,
-    decoded_f64: Vec<f64>,
-) -> BinaryDataArray {
-    let byte_len = (array_len as usize) * elem_size;
-    let enc_len = base64_encoded_len(byte_len);
-
-    let mut ba = BinaryDataArray::default();
-    ba.array_length = Some(array_len as usize);
-    ba.encoded_length = Some(enc_len);
-    ba.is_f32 = Some(fmt == 1);
-    ba.is_f64 = Some(fmt == 2);
-    ba.cv_params = vec![
-        ms_cv_param(float_acc_from_fmt(fmt)),
-        ms_cv_param(ACC_NO_COMPRESSION),
-        ms_cv_param(array_accession_tail),
-    ];
-    ba.decoded_binary_f32 = decoded_f32;
-    ba.decoded_binary_f64 = decoded_f64;
-    ba
-}
-
 /// <mzML>
 pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
+    let schema = Some(schema());
+    let schema_nodes = SchemaNodes::new(schema);
+
     if bytes.len() < HEADER_SIZE {
         return Err("Buffer too small for header".to_string());
     }
@@ -929,6 +1336,7 @@ pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
     )?;
 
     let spec_meta_by_item = decode_meta_block(
+        schema,
         spec_meta_bytes.as_slice(),
         spectrum_count,
         spec_meta_count,
@@ -936,6 +1344,7 @@ pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
         spec_str_count,
     )?;
     let chrom_meta_by_item = decode_meta_block(
+        schema,
         chrom_meta_bytes.as_slice(),
         chrom_count,
         chrom_meta_count,
@@ -952,15 +1361,28 @@ pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
         software_list,
         data_processing_list,
         scan_settings_list,
+        run,
     ) = decode_global_meta_structs(
+        schema,
+        schema_nodes,
         global_meta_bytes.as_slice(),
         global_meta_count,
         global_num_count,
         global_str_count,
     )?;
 
+    let tails = MsBinaryTails {
+        mz_array: ms_tail(schema, "m/z array"),
+        intensity_array: ms_tail(schema, "intensity array"),
+        time_array: ms_tail(schema, "time array"),
+        f32: ms_tail(schema, "32-bit float"),
+        f64: ms_tail(schema, "64-bit float"),
+        no_compression: ms_tail(schema, "no compression"),
+        zlib_compression: ms_tail(schema, "zlib compression"),
+    };
+
     let mut spectra = Vec::with_capacity(spectrum_count as usize);
-    for (i, item_params) in spec_meta_by_item.into_iter().enumerate() {
+    for (i, mut item_params) in spec_meta_by_item.into_iter().enumerate() {
         let (x_off, y_off, x_len, y_len, x_block, y_block) =
             read_index_entry_with_blocks(spectrum_index_bytes, i)?;
 
@@ -970,33 +1392,23 @@ pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
         let (mz_f32, mz_f64) = decode_array_by_fmt_from_bytes(mz_bytes, spect_x_fmt)?;
         let (in_f32, in_f64) = decode_array_by_fmt_from_bytes(in_bytes, spect_y_fmt)?;
 
-        let mz_ba = make_binary_data_array(
-            x_len,
-            spect_x_elem_size,
-            spect_x_fmt,
-            ACC_MZ_ARRAY,
-            mz_f32,
-            mz_f64,
-        );
-        let inten_ba = make_binary_data_array(
-            y_len,
-            spect_y_elem_size,
-            spect_y_fmt,
-            ACC_INTENSITY_ARRAY,
-            in_f32,
-            in_f64,
-        );
+        let arrays = [
+            (BinaryArrayRole::Mz, mz_f32, mz_f64),
+            (BinaryArrayRole::Intensity, in_f32, in_f64),
+        ];
 
-        let mut spectrum_params = item_params;
-        strip_binary_array_cv_params(&mut spectrum_params);
+        let binary_data_array_list =
+            parse_binary_data_array_list(schema, tails, &mut item_params, &arrays)?;
 
-        let (id, index, default_array_length, mut spectrum_params) =
-            split_spectrum_attrs(i, x_len, spectrum_params);
+        let (id, index, default_array_length, mut item_params) =
+            split_spectrum_attrs(i, x_len, item_params);
 
-        let precursor_list = infer_precursor_list_from_spectrum_cv(&mut spectrum_params);
+        let precursor_list =
+            infer_precursor_list_from_spectrum_cv(schema, schema_nodes, &mut item_params);
         let spectrum_description =
-            infer_spectrum_description_from_spectrum_cv(&mut spectrum_params);
+            infer_spectrum_description_from_spectrum_cv(schema, schema_nodes, &mut item_params);
 
+        let mut spectrum_params = item_params.into_iter().map(|m| m.cv).collect::<Vec<_>>();
         filter_spectrum_top_level_cv_params(&mut spectrum_params);
 
         spectra.push(Spectrum {
@@ -1006,16 +1418,13 @@ pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
             cv_params: spectrum_params,
             spectrum_description,
             precursor_list,
-            binary_data_array_list: Some(BinaryDataArrayList {
-                count: Some(2),
-                binary_data_arrays: vec![mz_ba, inten_ba],
-            }),
+            binary_data_array_list: binary_data_array_list,
             ..Default::default()
         });
     }
 
     let mut chromatograms = Vec::with_capacity(chrom_count as usize);
-    for (j, item_params) in chrom_meta_by_item.into_iter().enumerate() {
+    for (j, mut item_params) in chrom_meta_by_item.into_iter().enumerate() {
         let (x_off, y_off, x_len, y_len, x_block, y_block) =
             read_index_entry_with_blocks(chromatogram_index_bytes, j)?;
 
@@ -1025,41 +1434,75 @@ pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
         let (t_f32, t_f64) = decode_array_by_fmt_from_bytes(t_bytes, chrom_x_fmt)?;
         let (in_f32, in_f64) = decode_array_by_fmt_from_bytes(in_bytes, chrom_y_fmt)?;
 
-        let time_ba = make_binary_data_array(
-            x_len,
-            chrom_x_elem_size,
-            chrom_x_fmt,
-            ACC_TIME_ARRAY,
-            t_f32,
-            t_f64,
-        );
-        let inten_ba = make_binary_data_array(
-            y_len,
-            chrom_y_elem_size,
-            chrom_y_fmt,
-            ACC_INTENSITY_ARRAY,
-            in_f32,
-            in_f64,
-        );
+        let arrays = [
+            (BinaryArrayRole::Time, t_f32, t_f64),
+            (BinaryArrayRole::Intensity, in_f32, in_f64),
+        ];
 
-        let mut chrom_params = item_params;
-        strip_binary_array_cv_params(&mut chrom_params);
+        let binary_data_array_list =
+            parse_binary_data_array_list(schema, tails, &mut item_params, &arrays)?;
 
-        let (id, index, default_array_length, chrom_params) =
-            split_chromatogram_attrs(j, x_len, chrom_params);
+        let (id, index, default_array_length, mut item_params) =
+            split_chromatogram_attrs(j, x_len, item_params);
+
+        let precursor = infer_precursor_from_cv(schema, schema_nodes, &mut item_params);
+
+        let chrom_params = item_params.into_iter().map(|m| m.cv).collect::<Vec<_>>();
 
         chromatograms.push(Chromatogram {
             id,
             index,
             default_array_length,
             cv_params: chrom_params,
-            binary_data_array_list: Some(BinaryDataArrayList {
-                count: Some(2),
-                binary_data_arrays: vec![time_ba, inten_ba],
-            }),
+            precursor,
+            binary_data_array_list: binary_data_array_list,
             ..Default::default()
         });
     }
+
+    let source_file_ids: Vec<String> = file_description
+        .source_file_list
+        .source_file
+        .iter()
+        .map(|sf| sf.id.clone())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let run_source_file_ref_list = (!source_file_ids.is_empty()).then(|| SourceFileRefList {
+        count: Some(source_file_ids.len()),
+        source_file_refs: source_file_ids
+            .iter()
+            .cloned()
+            .map(|id| SourceFileRef { r#ref: id })
+            .collect(),
+    });
+
+    let default_source_file_ref = if file_description.source_file_list.source_file.len() == 1 {
+        let id = file_description.source_file_list.source_file[0].id.clone();
+        (!id.is_empty()).then_some(id)
+    } else {
+        None
+    };
+
+    let default_instrument_configuration_ref = instrument_list.as_ref().and_then(|il| {
+        if il.instrument.len() == 1 {
+            let id = il.instrument[0].id.clone();
+            (!id.is_empty()).then_some(id)
+        } else {
+            None
+        }
+    });
+
+    let sample_ref = sample_list.as_ref().and_then(|sl| {
+        if sl.samples.len() == 1 {
+            let id = sl.samples[0].id.clone();
+            (!id.is_empty()).then_some(id)
+        } else {
+            None
+        }
+    });
+
+    let run_result = run.unwrap();
 
     Ok(MzML {
         cv_list,
@@ -1071,7 +1514,12 @@ pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
         data_processing_list,
         scan_settings_list,
         run: Run {
-            id: "run".to_string(),
+            id: run_result.id,
+            start_time_stamp: run_result.start_time_stamp,
+            default_instrument_configuration_ref,
+            default_source_file_ref,
+            sample_ref,
+            source_file_ref_list: run_source_file_ref_list,
             spectrum_list: Some(SpectrumList {
                 count: Some(spectrum_count as usize),
                 spectra,
@@ -1097,32 +1545,6 @@ fn min_nonzero_usize(xs: &[usize]) -> Option<usize> {
         m = Some(m.map_or(x, |cur| cur.min(x)));
     }
     m
-}
-
-#[inline]
-fn fmt_elem_size(fmt: u8) -> Result<usize, String> {
-    match fmt {
-        1 => Ok(4),
-        2 => Ok(8),
-        _ => Err("Invalid float format".to_string()),
-    }
-}
-
-#[inline]
-fn strip_binary_array_cv_params(params: &mut Vec<CvParam>) {
-    params.retain(|p| {
-        let tail = parse_acc_tail(p.accession.as_deref());
-        !matches!(
-            tail,
-            ACC_MZ_ARRAY
-                | ACC_INTENSITY_ARRAY
-                | ACC_TIME_ARRAY
-                | ACC_32BIT_FLOAT
-                | ACC_64BIT_FLOAT
-                | ACC_ZLIB_COMPRESSION
-                | ACC_NO_COMPRESSION
-        )
-    });
 }
 
 fn read_index_entry_with_blocks(
@@ -1202,45 +1624,26 @@ fn bytes_to_f32_exact(bytes: &[u8]) -> Result<Vec<f32>, String> {
     Ok(out)
 }
 
-#[inline]
-fn cv_table_name(key: &str) -> Option<String> {
-    cv_table::get(key)
-        .and_then(|v| {
-            v.as_str()
-                .or_else(|| v.get("name").and_then(|n| n.as_str()))
-        })
-        .map(|s| s.to_string())
-}
-
-/// <cvParam>
-#[inline]
-fn ms_cv_param(accession_tail: u32) -> CvParam {
-    let key = make_accession(Some("MS"), accession_tail)
-        .unwrap_or_else(|| format!("MS:{:07}", accession_tail));
-    let name = cv_table_name(&key).unwrap_or_default();
-    CvParam {
-        cv_ref: Some("MS".to_string()),
-        accession: Some(key),
-        name,
-        value: Some(String::new()),
-        ..Default::default()
-    }
-}
-
 /// <cvParam>
 fn decode_meta_block(
+    schema: Option<&Schema>,
     bytes: &[u8],
     item_count: u32,
     meta_count: u32,
     num_count: u32,
     str_count: u32,
-) -> Result<Vec<Vec<CvParam>>, String> {
-    let mut offset = 0usize;
-
+) -> Result<Vec<Vec<MetaCvParam>>, String> {
+    let _ = schema;
     let item_count = item_count as usize;
     let meta_count = meta_count as usize;
     let num_count = num_count as usize;
     let str_count = str_count as usize;
+
+    if item_count == 0 || meta_count == 0 {
+        return Ok(vec![Vec::new(); item_count]);
+    }
+
+    let mut offset = 0usize;
 
     let item_indices = read_u32_vec(
         read_slice(bytes, offset, (item_count + 1) * 4)?,
@@ -1248,7 +1651,26 @@ fn decode_meta_block(
     )?;
     offset += (item_count + 1) * 4;
 
-    let meta_ref_codes = read_slice(bytes, offset, meta_count)?;
+    let first = read_slice(bytes, offset, meta_count)?;
+    let probe_n = meta_count.min(64);
+
+    let second_off = offset
+        .checked_add(meta_count)
+        .ok_or_else(|| "Meta size overflow".to_string())?;
+    let second_end = second_off
+        .checked_add(meta_count)
+        .ok_or_else(|| "Meta size overflow".to_string())?;
+
+    let (tag_ids, meta_ref_codes) = if let Some(second) = bytes.get(second_off..second_end) {
+        if cv_code_score(&second[..probe_n]) > cv_code_score(&first[..probe_n]) {
+            offset += meta_count;
+            (Some(first), read_slice(bytes, offset, meta_count)?)
+        } else {
+            (None, first)
+        }
+    } else {
+        (None, first)
+    };
     offset += meta_count;
 
     let meta_accessions = read_u32_vec(read_slice(bytes, offset, meta_count * 4)?, meta_count)?;
@@ -1315,39 +1737,51 @@ fn decode_meta_block(
                 String::new()
             };
 
-            let cv_ref = cv_ref_from_code(meta_ref_codes[m]);
-            let accession = make_accession(cv_ref, meta_accessions[m]);
-            let name = accession
-                .as_deref()
-                .and_then(|k| cv_table_name(k))
-                .unwrap_or_default();
+            let accession_tail = meta_accessions[m];
+            let unit_tail = meta_unit_accessions[m];
 
-            let unit_acc = meta_unit_accessions[m];
-            let mut unit_ref = cv_ref_from_code(meta_unit_refs[m]);
-            if unit_ref.is_none() && unit_acc != 0 {
-                let uo_accession = make_accession(Some("UO"), unit_acc);
-                unit_ref = if uo_accession
-                    .as_deref()
-                    .and_then(|k| cv_table::get(k))
-                    .is_some()
-                {
-                    Some("UO")
-                } else {
-                    Some("MS")
-                };
+            let cv_ref_code = infer_term_cv_ref_code(meta_ref_codes[m], accession_tail);
+            let unit_cv_ref_code = infer_unit_cv_ref_code(meta_unit_refs[m], unit_tail);
+
+            let cv_ref = cv_ref_prefix_from_code(cv_ref_code)
+                .map(|s| s.to_string())
+                .or_else(|| (accession_tail >= 9_900_000).then(|| CV_REF_ATTR.to_string()));
+            let accession = format_accession(cv_ref_code, accession_tail)
+                .or_else(|| attr_accession(accession_tail));
+
+            let unit_cv_ref = cv_ref_prefix_from_code(unit_cv_ref_code)
+                .map(|s| s.to_string())
+                .or_else(|| (unit_tail >= 9_900_000).then(|| CV_REF_ATTR.to_string()));
+            let unit_accession =
+                format_accession(unit_cv_ref_code, unit_tail).or_else(|| attr_accession(unit_tail));
+
+            let mut cv = CvParam {
+                cv_ref,
+                accession,
+                name: String::new(),
+                value: Some(value),
+                unit_cv_ref,
+                unit_accession,
+                unit_name: None,
+            };
+
+            if let Some(k) = cv.accession.as_deref() {
+                cv.name = cv_table_name(k).unwrap_or_default();
+            }
+            if let Some(uk) = cv.unit_accession.as_deref() {
+                cv.unit_name = cv_table_name(uk);
             }
 
-            let unit_accession = make_accession(unit_ref, unit_acc);
-            let unit_name = unit_accession.as_deref().and_then(|k| cv_table_name(k));
+            let tag = tag_ids
+                .and_then(|t| t.get(m).copied())
+                .map(tag_from_u8)
+                .unwrap_or(TagId::Unknown);
 
-            item_params.push(CvParam {
-                cv_ref: cv_ref.map(|s| s.to_string()),
-                accession,
-                name,
-                value: Some(value),
-                unit_cv_ref: unit_ref.map(|s| s.to_string()),
-                unit_accession,
-                unit_name,
+            item_params.push(MetaCvParam {
+                tag,
+                cv_ref_code,
+                accession_tail,
+                cv,
             });
         }
 
@@ -1357,129 +1791,11 @@ fn decode_meta_block(
     Ok(result)
 }
 
-#[inline]
-fn split_attr_value(params: &mut Vec<CvParam>, attr_tail: u32) -> Option<String> {
-    let mut v: Option<String> = None;
-    params.retain(|p| {
-        if is_attr_param(p) && parse_acc_tail(p.accession.as_deref()) == attr_tail {
-            v = attr_string_value(p);
-            false
-        } else {
-            true
-        }
-    });
-    v
-}
-
-#[inline]
-fn split_id_attr(params: &mut Vec<CvParam>) -> Option<String> {
-    split_attr_value(params, ACC_ATTR_ID)
-}
-
-#[inline]
-fn split_name_attr(params: &mut Vec<CvParam>) -> Option<String> {
-    split_attr_value(params, ACC_ATTR_NAME)
-}
-
-#[inline]
-fn split_version_attr(params: &mut Vec<CvParam>) -> Option<String> {
-    split_attr_value(params, ACC_ATTR_VERSION)
-}
-
-#[inline]
-fn split_instrument_configuration_ref_attr(params: &mut Vec<CvParam>) -> Option<String> {
-    split_attr_value(params, ACC_ATTR_INSTRUMENT_CONFIGURATION_REF)
-}
-
-#[inline]
-fn collect_ref_attrs(params: &mut Vec<CvParam>) -> Vec<String> {
-    let mut refs = Vec::<String>::new();
-    params.retain(|p| {
-        if is_attr_param(p) && parse_acc_tail(p.accession.as_deref()) == ACC_ATTR_REF {
-            if let Some(v) = attr_string_value(p) {
-                if !v.is_empty() {
-                    refs.push(v);
-                }
-            }
-            false
-        } else {
-            true
-        }
-    });
-    refs
-}
-
-#[inline]
-fn build_scan_settings_from_cv_params(mut params: Vec<CvParam>) -> ScanSettings {
-    let id = split_id_attr(&mut params);
-    let instrument_configuration_ref = split_instrument_configuration_ref_attr(&mut params);
-
-    let source_file_refs = collect_ref_attrs(&mut params);
-    let source_file_ref_list = (!source_file_refs.is_empty()).then(|| SourceFileRefList {
-        count: Some(source_file_refs.len()),
-        source_file_refs: source_file_refs
-            .into_iter()
-            .map(|r| SourceFileRef { r#ref: r })
-            .collect(),
-    });
-
-    let mut target_cv = Vec::<CvParam>::new();
-    let mut rest = Vec::with_capacity(params.len());
-    for p in params.drain(..) {
-        let t = parse_acc_tail(p.accession.as_deref());
-        if matches!(
-            t,
-            ACC_ISO_TARGET_MZ | ACC_PRODUCT_ION_MZ | ACC_DWELL_TIME | ACC_COMPLETION_TIME
-        ) {
-            target_cv.push(p);
-        } else {
-            rest.push(p);
-        }
-    }
-
-    let target_list = if target_cv.is_empty() {
-        None
-    } else {
-        let mut targets: Vec<Target> = Vec::new();
-        let mut cur: Vec<CvParam> = Vec::new();
-
-        for p in target_cv {
-            let t = parse_acc_tail(p.accession.as_deref());
-            if t == ACC_ISO_TARGET_MZ && !cur.is_empty() {
-                targets.push(Target {
-                    cv_params: cur,
-                    ..Default::default()
-                });
-                cur = Vec::new();
-            }
-            cur.push(p);
-        }
-        if !cur.is_empty() {
-            targets.push(Target {
-                cv_params: cur,
-                ..Default::default()
-            });
-        }
-
-        Some(TargetList {
-            count: Some(targets.len()),
-            targets,
-        })
-    };
-
-    ScanSettings {
-        id,
-        instrument_configuration_ref,
-        source_file_ref_list,
-        target_list,
-        cv_params: rest,
-        ..Default::default()
-    }
-}
-
 /// <cvList> <fileDescription> <referenceableParamGroupList> <sampleList>
 /// <instrumentList> <softwareList> <dataProcessingList> <scanSettingsList>
 fn decode_global_meta_structs(
+    schema: Option<&Schema>,
+    schema_nodes: SchemaNodes<'_>,
     bytes: &[u8],
     m_cnt: u32,
     n_cnt: u32,
@@ -1494,13 +1810,16 @@ fn decode_global_meta_structs(
         Option<SoftwareList>,
         Option<DataProcessingList>,
         Option<ScanSettingsList>,
+        Option<Run>,
     ),
     String,
 > {
-    if bytes.len() < 32 {
+    let header_len = 9 * core::mem::size_of::<u32>();
+    if bytes.len() < header_len {
         return Ok((
             None,
             FileDescription::default(),
+            None,
             None,
             None,
             None,
@@ -1511,32 +1830,76 @@ fn decode_global_meta_structs(
     }
 
     let n_fd = read_u32_at(bytes, 0)?;
-    let n_rpg = read_u32_at(bytes, 4)?;
-    let n_samp = read_u32_at(bytes, 8)?;
-    let n_inst = read_u32_at(bytes, 12)?;
-    let n_soft = read_u32_at(bytes, 16)?;
-    let n_dp = read_u32_at(bytes, 20)?;
-    let n_acq = read_u32_at(bytes, 24)?;
-    let n_cvs = read_u32_at(bytes, 28)?;
+    let n_run = read_u32_at(bytes, 4)?;
+    let n_rpg = read_u32_at(bytes, 8)?;
+    let n_samp = read_u32_at(bytes, 12)?;
+    let n_inst = read_u32_at(bytes, 16)?;
+    let n_soft = read_u32_at(bytes, 20)?;
+    let n_dp = read_u32_at(bytes, 24)?;
+    let n_acq = read_u32_at(bytes, 28)?;
+    let n_cvs = read_u32_at(bytes, 32)?;
 
-    let total = n_fd + n_rpg + n_samp + n_inst + n_soft + n_dp + n_acq + n_cvs;
-    let items = decode_meta_block(&bytes[32..], total, m_cnt, n_cnt, s_cnt)?;
+    let total = n_fd + n_run + n_rpg + n_samp + n_inst + n_soft + n_dp + n_acq + n_cvs;
+    let items = decode_meta_block(schema, &bytes[header_len..], total, m_cnt, n_cnt, s_cnt)?;
     let mut it = items.into_iter();
 
+    // Tag: FileDescription
     let fd = if n_fd > 0 {
-        split_file_description_from_cv_params(it.next().unwrap_or_default())
+        split_file_description_from_cv_params(schema, schema_nodes, it.next().unwrap_or_default())
     } else {
         FileDescription::default()
     };
 
+    // Tag: Run
+    let run = if n_run > 0 {
+        let mut p = it.next().unwrap_or_default();
+
+        let id = split_id_attr(&mut p).unwrap_or_default();
+        let start_time_stamp = split_attr_value(&mut p, ACC_ATTR_START_TIME_STAMP);
+        let default_instrument_configuration_ref =
+            split_attr_value(&mut p, ACC_ATTR_DEFAULT_INSTRUMENT_CONFIGURATION_REF);
+        let default_source_file_ref = split_attr_value(&mut p, ACC_ATTR_DEFAULT_SOURCE_FILE_REF);
+        let sample_ref = split_attr_value(&mut p, ACC_ATTR_SAMPLE_REF);
+
+        let source_file_refs = collect_ref_attrs(&mut p);
+        let source_file_ref_list = (!source_file_refs.is_empty()).then(|| SourceFileRefList {
+            count: Some(source_file_refs.len()),
+            source_file_refs: source_file_refs
+                .into_iter()
+                .map(|r| SourceFileRef { r#ref: r })
+                .collect(),
+        });
+
+        let cv_params = p.into_iter().map(|m| m.cv).collect::<Vec<_>>();
+
+        for _ in 1..n_run {
+            let _ = it.next();
+        }
+
+        Some(Run {
+            id,
+            start_time_stamp,
+            default_instrument_configuration_ref,
+            default_source_file_ref,
+            sample_ref,
+            source_file_ref_list,
+            cv_params,
+            ..Default::default()
+        })
+    } else {
+        None
+    };
+
+    // Tag: ReferenceableParamGroupList
     let rpgs = if n_rpg > 0 {
         let mut groups = Vec::with_capacity(n_rpg as usize);
         for _ in 0..n_rpg {
             let mut p = it.next().unwrap_or_default();
             let id = split_id_attr(&mut p).unwrap_or_default();
+            let cv_params = p.into_iter().map(|m| m.cv).collect::<Vec<_>>();
             groups.push(ReferenceableParamGroup {
                 id,
-                cv_params: p,
+                cv_params,
                 ..Default::default()
             });
         }
@@ -1548,16 +1911,18 @@ fn decode_global_meta_structs(
         None
     };
 
+    // Tag: SampleList
     let samps = if n_samp > 0 {
         let mut samples = Vec::with_capacity(n_samp as usize);
         for _ in 0..n_samp {
             let mut p = it.next().unwrap_or_default();
             let id = split_id_attr(&mut p).unwrap_or_default();
             let name = split_name_attr(&mut p).unwrap_or_default();
+            let cv_params = p.into_iter().map(|m| m.cv).collect::<Vec<_>>();
             samples.push(Sample {
                 id,
                 name,
-                cv_params: p,
+                cv_params,
                 ..Default::default()
             });
         }
@@ -1569,57 +1934,76 @@ fn decode_global_meta_structs(
         None
     };
 
+    // Tag: InstrumentList
     let insts = if n_inst > 0 {
         let mut instruments = Vec::with_capacity(n_inst as usize);
         for _ in 0..n_inst {
             let mut p = it.next().unwrap_or_default();
             let id = split_id_attr(&mut p).unwrap_or_default();
 
-            let mut component_cv = Vec::<CvParam>::new();
+            let mut src_metas = Vec::<MetaCvParam>::new();
+            let mut an_metas = Vec::<MetaCvParam>::new();
+            let mut det_metas = Vec::<MetaCvParam>::new();
             let mut inst_cv = Vec::<CvParam>::new();
-            for cv in p {
-                let t = parse_acc_tail(cv.accession.as_deref());
-                if t == 1_000_398 || t == 1_000_082 || t == 1_000_253 {
-                    component_cv.push(cv);
+
+            for m in p {
+                let tag = schema_tag_in_nodes(
+                    schema,
+                    &m,
+                    None,
+                    &[
+                        (TagId::ComponentSource, schema_nodes.component_source),
+                        (TagId::ComponentAnalyzer, schema_nodes.component_analyzer),
+                        (TagId::ComponentDetector, schema_nodes.component_detector),
+                    ],
+                );
+
+                if tag == TagId::ComponentSource {
+                    src_metas.push(m);
+                } else if tag == TagId::ComponentAnalyzer {
+                    an_metas.push(m);
+                } else if tag == TagId::ComponentDetector {
+                    det_metas.push(m);
                 } else {
-                    inst_cv.push(cv);
+                    inst_cv.push(m.cv);
                 }
             }
 
-            let component_list = if component_cv.is_empty() {
+            let source = split_components_by_order(src_metas, 1)
+                .into_iter()
+                .map(|(order, cv_param)| Source {
+                    order, // adjust type if your field is Option<usize>
+                    cv_param,
+                    ..Default::default()
+                })
+                .collect::<Vec<_>>();
+
+            let analyzer = split_components_by_order(an_metas, 2)
+                .into_iter()
+                .map(|(order, cv_param)| Analyzer {
+                    order,
+                    cv_param,
+                    ..Default::default()
+                })
+                .collect::<Vec<_>>();
+
+            let detector = split_components_by_order(det_metas, 3)
+                .into_iter()
+                .map(|(order, cv_param)| Detector {
+                    order,
+                    cv_param,
+                    ..Default::default()
+                })
+                .collect::<Vec<_>>();
+
+            let component_list = if source.is_empty() && analyzer.is_empty() && detector.is_empty()
+            {
                 None
             } else {
-                let mut src = Vec::<Source>::new();
-                let mut an = Vec::<Analyzer>::new();
-                let mut det = Vec::<Detector>::new();
-
-                for cv in component_cv {
-                    let t = parse_acc_tail(cv.accession.as_deref());
-                    if t == 1_000_398 {
-                        src.push(Source {
-                            order: Some(1),
-                            cv_param: vec![cv],
-                            ..Default::default()
-                        });
-                    } else if t == 1_000_082 {
-                        an.push(Analyzer {
-                            order: Some(2),
-                            cv_param: vec![cv],
-                            ..Default::default()
-                        });
-                    } else if t == 1_000_253 {
-                        det.push(Detector {
-                            order: Some(3),
-                            cv_param: vec![cv],
-                            ..Default::default()
-                        });
-                    }
-                }
-
                 Some(ComponentList {
-                    source: src,
-                    analyzer: an,
-                    detector: det,
+                    source,
+                    analyzer,
+                    detector,
                     ..Default::default()
                 })
             };
@@ -1639,34 +2023,30 @@ fn decode_global_meta_structs(
         None
     };
 
+    // Tag: SoftwareList
     let softs = if n_soft > 0 {
         let mut software = Vec::with_capacity(n_soft as usize);
+
         for _ in 0..n_soft {
             let mut p = it.next().unwrap_or_default();
 
             let id = split_id_attr(&mut p).unwrap_or_default();
             let version = split_version_attr(&mut p);
 
-            let mut software_param = Vec::<SoftwareParam>::new();
-            for cv in p {
-                if is_attr_param(&cv) {
-                    continue;
-                }
-                software_param.push(SoftwareParam {
-                    cv_ref: cv.cv_ref,
-                    accession: cv.accession.unwrap_or_default(),
-                    name: cv.name,
-                    version: version.clone(),
-                    ..Default::default()
-                });
-            }
+            let cv_param = p
+                .into_iter()
+                .filter(|m| !is_attr_param(&m.cv))
+                .map(|m| m.cv)
+                .collect::<Vec<_>>();
 
             software.push(Software {
                 id,
-                software_param,
+                version,
+                cv_param,
                 ..Default::default()
             });
         }
+
         Some(SoftwareList {
             count: Some(software.len()),
             software,
@@ -1675,15 +2055,17 @@ fn decode_global_meta_structs(
         None
     };
 
+    // Tag: DataProcessingList
     let dps = if n_dp > 0 {
         let mut data_processing = Vec::with_capacity(n_dp as usize);
         for _ in 0..n_dp {
             let mut p = it.next().unwrap_or_default();
             let id = split_id_attr(&mut p).unwrap_or_default();
+            let cv_param = p.into_iter().map(|m| m.cv).collect::<Vec<_>>();
             data_processing.push(DataProcessing {
                 id,
                 processing_method: vec![ProcessingMethod {
-                    cv_param: p,
+                    cv_param,
                     ..Default::default()
                 }],
                 ..Default::default()
@@ -1697,11 +2079,12 @@ fn decode_global_meta_structs(
         None
     };
 
+    // Tag: ScanSettingsList
     let acqs = if n_acq > 0 {
         let mut scan_settings = Vec::with_capacity(n_acq as usize);
         for _ in 0..n_acq {
             let p = it.next().unwrap_or_default();
-            scan_settings.push(build_scan_settings_from_cv_params(p));
+            scan_settings.push(build_scan_settings_from_cv_params(schema, schema_nodes, p));
         }
         Some(ScanSettingsList {
             count: Some(scan_settings.len()),
@@ -1711,21 +2094,22 @@ fn decode_global_meta_structs(
         None
     };
 
+    // Tag: CvList
     let cvs = if n_cvs > 0 {
         let mut cv = Vec::<Cv>::with_capacity(n_cvs as usize);
         for _ in 0..n_cvs {
             let p = it.next().unwrap_or_default();
             let mut c = Cv::default();
-            for param in p {
-                let tail = parse_acc_tail(param.accession.as_deref());
+            for m in p {
+                let tail = parse_acc_tail(m.cv.accession.as_deref());
                 if tail == 9_900_001 {
-                    c.id = attr_string_value(&param).unwrap_or_default();
+                    c.id = attr_string_value(&m.cv).unwrap_or_default();
                 } else if tail == 9_900_002 {
-                    c.full_name = Some(attr_string_value(&param).unwrap_or_default());
+                    c.full_name = Some(attr_string_value(&m.cv).unwrap_or_default());
                 } else if tail == 9_900_003 {
-                    c.version = Some(attr_string_value(&param).unwrap_or_default());
+                    c.version = Some(attr_string_value(&m.cv).unwrap_or_default());
                 } else if tail == 9_900_004 {
-                    c.uri = Some(attr_string_value(&param).unwrap_or_default());
+                    c.uri = Some(attr_string_value(&m.cv).unwrap_or_default());
                 }
             }
             cv.push(c);
@@ -1738,7 +2122,39 @@ fn decode_global_meta_structs(
         None
     };
 
-    Ok((cvs, fd, rpgs, samps, insts, softs, dps, acqs))
+    Ok((cvs, fd, rpgs, samps, insts, softs, dps, acqs, run))
+}
+
+#[inline]
+fn split_components_by_order(
+    mut metas: Vec<MetaCvParam>,
+    default_order: u32,
+) -> Vec<(Option<u32>, Vec<CvParam>)> {
+    let mut out: Vec<(Option<u32>, Vec<CvParam>)> = Vec::new();
+
+    let mut cur_order: Option<u32> = None;
+    let mut cur: Vec<CvParam> = Vec::new();
+
+    for m in metas.drain(..) {
+        if is_attr_param(&m.cv) {
+            let tail = parse_acc_tail(m.cv.accession.as_deref());
+            if tail == ACC_ATTR_ORDER {
+                if !cur.is_empty() {
+                    out.push((cur_order.or(Some(default_order)), std::mem::take(&mut cur)));
+                }
+                cur_order = attr_string_value(&m.cv).and_then(|s| s.parse::<u32>().ok());
+            }
+            continue;
+        }
+
+        cur.push(m.cv);
+    }
+
+    if !cur.is_empty() {
+        out.push((cur_order.or(Some(default_order)), cur));
+    }
+
+    out
 }
 
 #[inline]
@@ -1810,33 +2226,6 @@ fn read_f64_vec(b: &[u8], c: usize) -> Result<Vec<f64>, String> {
     Ok(out)
 }
 
-fn cv_ref_from_code(c: u8) -> Option<&'static str> {
-    match c {
-        0 => Some("MS"),
-        1 => Some("UO"),
-        2 => Some("NCIT"),
-        3 => Some("PEFF"),
-        4 => Some(CV_REF_ATTR),
-        _ => None,
-    }
-}
-
-fn make_accession(r: Option<&str>, a: u32) -> Option<String> {
-    if a == 0 {
-        return None;
-    }
-    match r {
-        Some("MS") | Some("UO") | Some("PEFF") => {
-            let p = r.unwrap();
-            Some(format!("{}:{:07}", p, a))
-        }
-        Some("NCIT") => Some(format!("NCIT:C{:05}", a)),
-        Some(CV_REF_ATTR) => Some(format!("{}:{:07}", CV_REF_ATTR, a)),
-        Some(cv) => Some(format!("{}:{}", cv, a)),
-        None => Some(a.to_string()),
-    }
-}
-
 fn parse_acc_tail(accession: Option<&str>) -> u32 {
     let s = accession.unwrap_or("");
     let tail = s.rsplit_once(':').map(|(_, t)| t).unwrap_or(s);
@@ -1856,4 +2245,188 @@ fn parse_acc_tail(accession: Option<&str>) -> u32 {
     }
 
     if saw_digit { v } else { 0 }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BinaryArrayRole {
+    Mz,
+    Time,
+    Intensity,
+}
+
+#[inline]
+fn split_count_attr(params: &mut Vec<MetaCvParam>) -> Option<usize> {
+    split_attr_value(params, ACC_ATTR_COUNT).and_then(|s| s.parse::<usize>().ok())
+}
+
+#[inline]
+fn split_array_length_attr(params: &mut Vec<MetaCvParam>) -> Option<usize> {
+    split_attr_value(params, ACC_ATTR_DEFAULT_ARRAY_LENGTH).and_then(|s| s.parse::<usize>().ok())
+}
+
+#[inline]
+fn split_encoded_length_attr(params: &mut Vec<MetaCvParam>) -> Option<usize> {
+    split_attr_value(params, ACC_ATTR_ENCODED_LENGTH).and_then(|s| s.parse::<usize>().ok())
+}
+
+#[inline]
+fn ensure_ms_cv(schema: Option<&Schema>, out: &mut Vec<CvParam>, tail: Option<u32>) {
+    let Some(t) = tail else { return };
+    if out
+        .iter()
+        .any(|p| parse_acc_tail(p.accession.as_deref()) == t)
+    {
+        return;
+    }
+    out.push(ms_cv_param(schema, Some(t)));
+}
+
+#[inline]
+fn role_tail(tails: MsBinaryTails, role: BinaryArrayRole) -> Option<u32> {
+    match role {
+        BinaryArrayRole::Mz => tails.mz_array,
+        BinaryArrayRole::Time => tails.time_array,
+        BinaryArrayRole::Intensity => tails.intensity_array,
+    }
+}
+
+/// <binaryDataArray>
+fn parse_binary_data_array(
+    schema: Option<&Schema>,
+    tails: MsBinaryTails,
+    role: BinaryArrayRole,
+    mut params: Vec<MetaCvParam>,
+    decoded_f32: Vec<f32>,
+    decoded_f64: Vec<f64>,
+) -> Result<BinaryDataArray, String> {
+    let array_length = split_array_length_attr(&mut params);
+    let _encoded_length = split_encoded_length_attr(&mut params);
+
+    let fmt = if params
+        .iter()
+        .any(|m| m.accession_tail == tails.f32.unwrap_or(u32::MAX))
+    {
+        1
+    } else if params
+        .iter()
+        .any(|m| m.accession_tail == tails.f64.unwrap_or(u32::MAX))
+    {
+        2
+    } else if !decoded_f32.is_empty() {
+        1
+    } else {
+        2
+    };
+
+    println!();
+
+    let elem_size = fmt_elem_size(fmt)?;
+    let len = if fmt == 1 {
+        decoded_f32.len()
+    } else {
+        decoded_f64.len()
+    };
+
+    if let Some(al) = array_length {
+        if al != len {
+            return Err("binaryDataArray: arrayLength mismatch".to_string());
+        }
+    }
+
+    let byte_len = len
+        .checked_mul(elem_size)
+        .ok_or_else(|| "binaryDataArray: byte length overflow".to_string())?;
+    let enc_len = base64_encoded_len(byte_len);
+
+    let mut cv_params = Vec::with_capacity(params.len() + 3);
+    for m in params {
+        if !is_attr_param(&m.cv) {
+            cv_params.push(m.cv);
+        }
+    }
+
+    ensure_ms_cv(schema, &mut cv_params, tails.float_tail(fmt));
+    ensure_ms_cv(schema, &mut cv_params, tails.no_compression);
+    ensure_ms_cv(schema, &mut cv_params, role_tail(tails, role));
+
+    let mut ba = BinaryDataArray::default();
+    ba.array_length = Some(len);
+    ba.encoded_length = Some(enc_len);
+    ba.is_f32 = Some(fmt == 1);
+    ba.is_f64 = Some(fmt == 2);
+    ba.cv_params = cv_params;
+    ba.decoded_binary_f32 = decoded_f32;
+    ba.decoded_binary_f64 = decoded_f64;
+    Ok(ba)
+}
+
+/// <binaryDataArrayList>
+fn parse_binary_data_array_list(
+    schema: Option<&Schema>,
+    tails: MsBinaryTails,
+    params: &mut Vec<MetaCvParam>,
+    arrays: &[(BinaryArrayRole, Vec<f32>, Vec<f64>)],
+) -> Result<Option<BinaryDataArrayList>, String> {
+    if arrays.is_empty() {
+        return Ok(None);
+    }
+
+    let mut list_params = Vec::new();
+    let mut bda_params = Vec::new();
+    let mut rest = Vec::with_capacity(params.len());
+
+    for m in params.drain(..) {
+        match m.tag {
+            TagId::BinaryDataArrayList => list_params.push(m),
+            TagId::BinaryDataArray => bda_params.push(m),
+            _ => rest.push(m),
+        }
+    }
+    *params = rest;
+
+    let count = split_count_attr(&mut list_params).unwrap_or(arrays.len());
+    if count != arrays.len() {
+        return Err("binaryDataArrayList: count mismatch".to_string());
+    }
+
+    let is_kind = |m: &MetaCvParam| {
+        m.accession_tail == tails.mz_array.unwrap_or(u32::MAX)
+            || m.accession_tail == tails.time_array.unwrap_or(u32::MAX)
+            || m.accession_tail == tails.intensity_array.unwrap_or(u32::MAX)
+    };
+
+    let mut groups: Vec<Vec<MetaCvParam>> = Vec::new();
+    let mut cur: Vec<MetaCvParam> = Vec::new();
+
+    for m in bda_params {
+        cur.push(m);
+        if is_kind(cur.last().unwrap()) && groups.len() + 1 < count {
+            groups.push(cur);
+            cur = Vec::new();
+        }
+    }
+    if !cur.is_empty() {
+        groups.push(cur);
+    }
+
+    while groups.len() > count {
+        let extra = groups.pop().unwrap();
+        groups.last_mut().unwrap().extend(extra);
+    }
+    while groups.len() < count {
+        groups.push(Vec::new());
+    }
+
+    let mut out = Vec::with_capacity(count);
+
+    for (i, g) in groups.into_iter().enumerate() {
+        let (role, f32v, f64v) = arrays[i].clone();
+        let ba = parse_binary_data_array(schema, tails, role, g, f32v, f64v)?;
+        out.push(ba);
+    }
+
+    Ok(Some(BinaryDataArrayList {
+        count: Some(out.len()),
+        binary_data_arrays: out,
+    }))
 }

@@ -2,11 +2,75 @@ use crate::utilities::mzml::CvParam;
 
 pub const CV_REF_ATTR: &str = "B000";
 
+pub const CV_CODE_MS: u8 = 0;
+pub const CV_CODE_UO: u8 = 1;
+pub const CV_CODE_NCIT: u8 = 2;
+pub const CV_CODE_PEFF: u8 = 3;
+pub const CV_CODE_B000: u8 = 4;
+pub const CV_CODE_UNKNOWN: u8 = 255;
+
+/// Encode: string -> code
+#[inline]
+pub fn cv_ref_code_from_str(cv_ref: Option<&str>) -> u8 {
+    match cv_ref {
+        Some("MS") => CV_CODE_MS,
+        Some("UO") => CV_CODE_UO,
+        Some("NCIT") => CV_CODE_NCIT,
+        Some("PEFF") => CV_CODE_PEFF,
+        Some(CV_REF_ATTR) => CV_CODE_B000,
+        _ => CV_CODE_UNKNOWN,
+    }
+}
+
+/// Decode: code -> string
+#[inline]
+pub fn cv_ref_prefix_from_code(code: u8) -> Option<&'static str> {
+    match code {
+        CV_CODE_MS => Some("MS"),
+        CV_CODE_UO => Some("UO"),
+        CV_CODE_NCIT => Some("NCIT"),
+        CV_CODE_PEFF => Some("PEFF"),
+        CV_CODE_B000 => Some(CV_REF_ATTR), // "B000"
+        _ => None,
+    }
+}
+
+#[inline]
+pub fn format_accession(cv_ref_code: u8, tail_raw: u32) -> Option<String> {
+    let pref = cv_ref_prefix_from_code(cv_ref_code)?;
+
+    match pref {
+        "MS" => {
+            let tail = normalize_ms_accession_tail(cv_ref_code, tail_raw);
+            Some(format!("MS:{tail:07}"))
+        }
+        "UO" => Some(format!("UO:{tail_raw:07}")),
+        "NCIT" => Some(format!("NCIT:C{tail_raw}")),
+        x if x == CV_REF_ATTR => Some(format!("{CV_REF_ATTR}:{tail_raw}")),
+        _ => Some(format!("{pref}:{tail_raw}")),
+    }
+}
+
+const MS_ACCESSION_BASE: u32 = 1_000_000;
+#[inline]
+pub fn normalize_ms_accession_tail(cv_ref_code: u8, tail: u32) -> u32 {
+    if cv_ref_code == CV_CODE_MS && tail != 0 && tail < MS_ACCESSION_BASE {
+        MS_ACCESSION_BASE + tail
+    } else {
+        tail
+    }
+}
+
 // Strings
 pub const ACC_ATTR_ID: u32 = 9_910_001;
 pub const ACC_ATTR_REF: u32 = 9_910_002;
 pub const ACC_ATTR_NAME: u32 = 9_910_003;
 pub const ACC_ATTR_LOCATION: u32 = 9_910_004;
+
+pub const ACC_CV_ID: u32 = 9_900_001;
+pub const ACC_CV_FULL_NAME: u32 = 9_900_002;
+pub const ACC_CV_VERSION: u32 = 9_900_003;
+pub const ACC_CV_URI: u32 = 9_900_004;
 
 pub const ACC_ATTR_START_TIME_STAMP: u32 = 9_910_005;
 pub const ACC_ATTR_DEFAULT_INSTRUMENT_CONFIGURATION_REF: u32 = 9_910_006;
@@ -86,7 +150,6 @@ pub fn attr_key_from_tail(accession_tail: u32) -> Option<&'static str> {
     let key = match accession_tail {
         ACC_ATTR_ID => "id",
         ACC_ATTR_REF => "ref",
-        ACC_ATTR_NAME => "name",
         ACC_ATTR_LOCATION => "location",
         ACC_ATTR_START_TIME_STAMP => "startTimeStamp",
         ACC_ATTR_DEFAULT_INSTRUMENT_CONFIGURATION_REF => "defaultInstrumentConfigurationRef",

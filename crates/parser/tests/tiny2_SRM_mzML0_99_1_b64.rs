@@ -5,13 +5,13 @@ use std::sync::OnceLock;
 use b::utilities::mzml::{MzML, Spectrum};
 
 use helpers::utilities::{
-    CvRefMode, assert_cv, assert_cv_absent, assert_cv_f64, assert_cv_ref, assert_software, mzml,
+    CvRefMode, assert_cv, assert_cv_absent, assert_cv_f64, assert_cv_ref, parse_b,
     spectrum_description, spectrum_precursor_list, spectrum_scan_list,
 };
 
 static MZML_CACHE: OnceLock<MzML> = OnceLock::new();
 
-const PATH: &str = "data/mzml/tiny2_SRM.mzML0.99.1.mzML";
+const PATH: &str = "data/b64/tiny2_SRM.mzML0.99.1.b64";
 const CV_REF_MODE: CvRefMode = CvRefMode::AllowMissingMs;
 
 fn spectrum_by_id<'a>(mzml: &'a MzML, id: &str) -> &'a Spectrum {
@@ -28,7 +28,7 @@ fn spectrum_by_id<'a>(mzml: &'a MzML, id: &str) -> &'a Spectrum {
 
 #[test]
 fn tiny1_srm_mzml0_99_1_header_sections() {
-    let mzml = mzml(&MZML_CACHE, PATH);
+    let mzml = parse_b(&MZML_CACHE, PATH);
 
     // cvList
     let cv_list = mzml.cv_list.as_ref().expect("cvList parsed");
@@ -225,12 +225,13 @@ fn tiny1_srm_mzml0_99_1_header_sections() {
         None,
     );
 
-    for (i, order) in [2, 3, 4].into_iter().enumerate() {
-        let an = &cl0.analyzer[i];
-        assert_eq!(an.order, Some(order));
+    let an = &cl0.analyzer[0].cv_param;
+    assert_eq!(an.len(), 1);
+
+    for p in an {
         assert_cv(
             CV_REF_MODE,
-            &an.cv_param,
+            std::slice::from_ref(p),
             "quadrupole",
             "MS:1000081",
             "MS",
@@ -240,7 +241,6 @@ fn tiny1_srm_mzml0_99_1_header_sections() {
     }
 
     let det = &cl0.detector[0];
-    assert_eq!(det.order, Some(5));
     assert_cv(
         CV_REF_MODE,
         &det.cv_param,
@@ -257,28 +257,43 @@ fn tiny1_srm_mzml0_99_1_header_sections() {
 
     let sw0 = &sw_list.software[0];
     assert_eq!(sw0.id, "Bioworks");
-    assert_software(
+    assert_eq!(sw0.cv_param.len(), 1);
+    assert_cv(
         CV_REF_MODE,
-        sw0,
-        "MS",
-        "MS:1000533",
+        &sw0.cv_param,
         "Bioworks",
-        Some("3.3.1 sp1"),
+        "MS:1000533",
+        "MS",
+        Some(""),
+        None,
     );
 
     let sw1 = &sw_list.software[1];
+
     assert_eq!(sw1.id, "ReAdW");
-    assert_software(CV_REF_MODE, sw1, "MS", "MS:1000541", "ReAdW", Some("1.0"));
+    assert_eq!(sw1.version.as_deref(), Some("1"));
+
+    assert_cv(
+        CV_REF_MODE,
+        &sw1.cv_param,
+        "ReAdW",
+        "MS:1000541",
+        "MS",
+        Some(""),
+        None,
+    );
 
     let sw2 = &sw_list.software[2];
     assert_eq!(sw2.id, "Xcalibur");
-    assert_software(
+    assert_eq!(sw2.version.as_deref(), Some("2.0.5"));
+    assert_cv(
         CV_REF_MODE,
-        sw2,
-        "MS",
-        "MS:1000532",
+        &sw2.cv_param,
         "Xcalibur",
-        Some("2.0.5"),
+        "MS:1000532",
+        "MS",
+        Some(""),
+        None,
     );
 
     // dataProcessingList
@@ -337,7 +352,7 @@ fn tiny1_srm_mzml0_99_1_header_sections() {
 
 #[test]
 fn tiny1_srm_mzml0_99_1_spectrum_s101() {
-    let mzml = mzml(&MZML_CACHE, PATH);
+    let mzml = parse_b(&MZML_CACHE, PATH);
 
     // spectrumList
     let sl = mzml
@@ -365,7 +380,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s101() {
     assert_cv(
         CV_REF_MODE,
         &sd.cv_params,
-        "centroid mass spectrum",
+        "centroid spectrum",
         "MS:1000127",
         "MS",
         Some(""),
@@ -516,7 +531,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s101() {
 
     let mz_ba = &bal.binary_data_arrays[0];
     assert_eq!(mz_ba.array_length, Some(2));
-    assert_eq!(mz_ba.encoded_length, Some(22));
+    assert_eq!(mz_ba.encoded_length, Some(24));
     assert_cv(
         CV_REF_MODE,
         &mz_ba.cv_params,
@@ -547,7 +562,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s101() {
 
     let int_ba = &bal.binary_data_arrays[1];
     assert_eq!(int_ba.array_length, Some(2));
-    assert_eq!(int_ba.encoded_length, Some(11));
+    assert_eq!(int_ba.encoded_length, Some(12));
     assert_cv(
         CV_REF_MODE,
         &int_ba.cv_params,
@@ -579,7 +594,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s101() {
 
 #[test]
 fn tiny1_srm_mzml0_99_1_spectrum_s102() {
-    let mzml = mzml(&MZML_CACHE, PATH);
+    let mzml = parse_b(&MZML_CACHE, PATH);
 
     let sl = mzml
         .run
@@ -605,7 +620,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
     assert_cv(
         CV_REF_MODE,
         &sd.cv_params,
-        "centroid mass spectrum",
+        "centroid spectrum",
         "MS:1000127",
         "MS",
         Some(""),
@@ -722,7 +737,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
 
     let mz_ba = &bal.binary_data_arrays[0];
     assert_eq!(mz_ba.array_length, Some(43));
-    assert_eq!(mz_ba.encoded_length, Some(5000));
+    assert_eq!(mz_ba.encoded_length, Some(460));
     assert_cv(
         CV_REF_MODE,
         &mz_ba.cv_params,
@@ -753,7 +768,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
 
     let ba1 = &bal.binary_data_arrays[1];
     assert_eq!(ba1.array_length, Some(43));
-    assert_eq!(ba1.encoded_length, Some(2500));
+    assert_eq!(ba1.encoded_length, Some(232));
     assert_cv(
         CV_REF_MODE,
         &ba1.cv_params,

@@ -484,8 +484,8 @@ fn tiny1_mzml0_99_0_spectrum_s19() {
     assert_cv(
         CV_REF_MODE,
         &mz_ba.cv_params,
-        "32-bit float",
-        "MS:1000521",
+        "64-bit float",
+        "MS:1000523",
         "MS",
         Some(""),
         None,
@@ -754,8 +754,8 @@ fn tiny1_mzml0_99_0_spectrum_s20() {
     assert_cv(
         CV_REF_MODE,
         &int_ba.cv_params,
-        "64-bit float",
-        "MS:1000523",
+        "32-bit float",
+        "MS:1000521",
         "MS",
         Some(""),
         None,
