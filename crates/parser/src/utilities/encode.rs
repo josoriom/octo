@@ -492,13 +492,11 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
         if let Some(xba) = xba {
             let x_decl_f64 = bda_declared_is_f64(xba).unwrap_or(matches!(x_arr, ArrayRef::F64(_)));
             merge_declared_width(&mut chrom_x_decl_f64, x_decl_f64, "chromatogram x");
-            println!("chrom x_decl_f64={}", x_decl_f64);
         }
 
         if let Some(yba) = yba {
             let y_decl_f64 = bda_declared_is_f64(yba).unwrap_or(matches!(y_arr, ArrayRef::F64(_)));
             merge_declared_width(&mut chrom_y_decl_f64, y_decl_f64, "chromatogram y");
-            println!("chrom y_decl_f64={}", y_decl_f64);
         }
 
         chrom_xy_cache.push((x_arr, y_arr));
