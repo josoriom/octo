@@ -16,7 +16,6 @@ use crate::mzml::{
 #[derive(Debug)]
 pub struct PackedMeta {
     pub index_offsets: Vec<u32>,          // CI
-    pub parent_indices: Vec<u32>,         // MPI
     pub tag_ids: Vec<u8>,                 // MTI
     pub ref_codes: Vec<u8>,               // MRI
     pub accession_numbers: Vec<u32>,      // MAN
@@ -47,7 +46,6 @@ struct GlobalCounts {
 struct GlobalMetaItem {
     cvs: Vec<CvParam>,
     tags: Vec<u8>,
-    parents: Vec<u32>,
 }
 
 const HEADER_SIZE: usize = 192;
@@ -359,47 +357,28 @@ impl ContainerBuilder {
 }
 
 #[inline]
-fn push_tagged(
-    out: &mut Vec<CvParam>,
-    tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
-    tag: TagId,
-    parent_idx: u32,
-    cv: CvParam,
-) {
+fn push_tagged(out: &mut Vec<CvParam>, tags: &mut Vec<u8>, tag: TagId, cv: CvParam) {
     out.push(cv);
     tags.push(tag as u8);
-    parents.push(parent_idx);
 }
 
 #[inline]
-fn extend_tagged(
-    out: &mut Vec<CvParam>,
-    tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
-    tag: TagId,
-    parent_idx: u32,
-    cvs: &[CvParam],
-) {
+fn extend_tagged(out: &mut Vec<CvParam>, tags: &mut Vec<u8>, tag: TagId, cvs: &[CvParam]) {
     out.extend_from_slice(cvs);
     tags.resize(tags.len() + cvs.len(), tag as u8);
-    parents.resize(parents.len() + cvs.len(), parent_idx);
 }
 
 #[inline]
 fn push_attr_string_tagged(
     out: &mut Vec<CvParam>,
     tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
     tag: TagId,
-    parent_idx: u32,
     accession_tail: u32,
     value: &str,
 ) {
     if !value.is_empty() {
         out.push(attr_cv_param(accession_tail, value));
         tags.push(tag as u8);
-        parents.push(parent_idx);
     }
 }
 
@@ -407,16 +386,13 @@ fn push_attr_string_tagged(
 fn push_attr_u32_tagged(
     out: &mut Vec<CvParam>,
     tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
     tag: TagId,
-    parent_idx: u32,
     accession_tail: u32,
     value: Option<u32>,
 ) {
     if let Some(v) = value {
         out.push(attr_cv_param(accession_tail, &v.to_string()));
         tags.push(tag as u8);
-        parents.push(parent_idx);
     }
 }
 
@@ -424,21 +400,18 @@ fn push_attr_u32_tagged(
 fn push_attr_usize_tagged(
     out: &mut Vec<CvParam>,
     tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
     tag: TagId,
-    parent_idx: u32,
     accession_tail: u32,
     value: Option<u32>,
 ) {
     if let Some(v) = value {
         out.push(attr_cv_param(accession_tail, &v.to_string()));
         tags.push(tag as u8);
-        parents.push(parent_idx);
     }
 }
 
 /// <mzML>
-pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8> {
+pub fn encode2(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8> {
     assert!(compression_level <= 22);
 
     #[inline]
@@ -571,73 +544,39 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
         fix_attr_values(&mut item.cvs);
     }
 
-    let mut spec_parent_fill = |s: &Spectrum, tags: &[u8], parents: &mut [u32]| {
-        assign_bda_parents_for_item(
-            parents,
+    let spectrum_meta = pack_meta_streaming(spectra, |out, tags, s| {
+        // Tag: Spectrum
+        flatten_spectrum_metadata_into(
+            out,
             tags,
-            s.binary_data_array_list.as_ref(),
+            s,
             &ref_groups,
             ACC_MZ_ARRAY,
             ACC_INTENSITY_ARRAY,
+            spect_x_store_f64,
+            spect_y_store_f64,
             f32_compress,
         );
-    };
+        fix_attr_values(out);
+    });
 
-    let spectrum_meta = pack_meta_streaming(
-        spectra,
-        |out, tags, parents, s| {
-            flatten_spectrum_metadata_into(
-                out,
-                tags,
-                parents,
-                s,
-                &ref_groups,
-                ACC_MZ_ARRAY,
-                ACC_INTENSITY_ARRAY,
-                spect_x_store_f64,
-                spect_y_store_f64,
-                f32_compress,
-            );
-            fix_attr_values(out);
-        },
-        Some(&mut spec_parent_fill),
-    );
-
-    let mut chrom_parent_fill = |c: &Chromatogram, tags: &[u8], parents: &mut [u32]| {
-        assign_bda_parents_for_item(
-            parents,
+    let chromatogram_meta = pack_meta_streaming(chromatograms, |out, tags, c| {
+        // Tag: Chromatogram
+        flatten_chromatogram_metadata_into(
+            out,
             tags,
-            c.binary_data_array_list.as_ref(),
+            c,
             &ref_groups,
             ACC_TIME_ARRAY,
             ACC_INTENSITY_ARRAY,
+            chrom_x_store_f64,
+            chrom_y_store_f64,
             f32_compress,
         );
-    };
-
-    let chromatogram_meta = pack_meta_streaming(
-        chromatograms,
-        |out, tags, parents, c| {
-            flatten_chromatogram_metadata_into(
-                out,
-                tags,
-                parents,
-                c,
-                &ref_groups,
-                ACC_TIME_ARRAY,
-                ACC_INTENSITY_ARRAY,
-                chrom_x_store_f64,
-                chrom_y_store_f64,
-                f32_compress,
-            );
-            fix_attr_values(out);
-        },
-        Some(&mut chrom_parent_fill),
-    );
-
-    let global_meta = pack_meta(&global_items, |m| {
-        (m.cvs.as_slice(), m.tags.as_slice(), m.parents.as_slice())
+        fix_attr_values(out);
     });
+
+    let global_meta = pack_meta(&global_items, |m| (m.cvs.as_slice(), m.tags.as_slice()));
 
     let spec_meta_count = spectrum_meta.ref_codes.len() as u32;
     let spec_num_count = spectrum_meta.numeric_values.len() as u32;
@@ -877,15 +816,12 @@ fn build_global_meta_items(
         let fd = &mzml.file_description;
         let mut out = Vec::new();
         let mut tags = Vec::new();
-        let mut parents = Vec::new();
 
         // Tag: FileContent
         extend_ref_group_cv_params(
             &mut out,
             &mut tags,
-            &mut parents,
             TagId::FileContent,
-            0,
             &fd.file_content.referenceable_param_group_refs,
             ref_groups,
         );
@@ -893,9 +829,7 @@ fn build_global_meta_items(
         extend_tagged(
             &mut out,
             &mut tags,
-            &mut parents,
             TagId::FileContent,
-            0,
             &fd.file_content.cv_params,
         );
 
@@ -904,9 +838,7 @@ fn build_global_meta_items(
             push_attr_string_tagged(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::SourceFile,
-                0,
                 ACC_ATTR_ID,
                 sf.id.as_str(),
             );
@@ -914,9 +846,7 @@ fn build_global_meta_items(
             push_attr_string_tagged(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::SourceFile,
-                0,
                 ACC_ATTR_NAME,
                 sf.name.as_str(),
             );
@@ -924,9 +854,7 @@ fn build_global_meta_items(
             push_attr_string_tagged(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::SourceFile,
-                0,
                 ACC_ATTR_LOCATION,
                 sf.location.as_str(),
             );
@@ -935,21 +863,12 @@ fn build_global_meta_items(
             extend_ref_group_cv_params(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::SourceFile,
-                0,
                 &sf.referenceable_param_group_ref,
                 ref_groups,
             );
             // Tag: SourceFile
-            extend_tagged(
-                &mut out,
-                &mut tags,
-                &mut parents,
-                TagId::SourceFile,
-                0,
-                &sf.cv_param,
-            );
+            extend_tagged(&mut out, &mut tags, TagId::SourceFile, &sf.cv_param);
         }
 
         for c in &fd.contacts {
@@ -957,28 +876,15 @@ fn build_global_meta_items(
             extend_ref_group_cv_params(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::Contact,
-                0,
                 &c.referenceable_param_group_refs,
                 ref_groups,
             );
             // Tag: Contact
-            extend_tagged(
-                &mut out,
-                &mut tags,
-                &mut parents,
-                TagId::Contact,
-                0,
-                &c.cv_params,
-            );
+            extend_tagged(&mut out, &mut tags, TagId::Contact, &c.cv_params);
         }
 
-        items.push(GlobalMetaItem {
-            cvs: out,
-            tags,
-            parents,
-        });
+        items.push(GlobalMetaItem { cvs: out, tags });
     }
     let n_file_description = 1u32;
 
@@ -988,19 +894,16 @@ fn build_global_meta_items(
         let run = &mzml.run;
         let mut out: Vec<CvParam> = Vec::new();
         let mut tags: Vec<u8> = Vec::new();
-        let mut parents: Vec<u32> = Vec::new();
 
         if !run.id.is_empty() {
             out.push(attr_cv_param(ACC_ATTR_ID, run.id.as_str()));
             tags.push(MTI_UNKNOWN);
-            parents.push(0);
         }
 
         if let Some(v) = run.start_time_stamp.as_deref() {
             if !v.is_empty() {
                 out.push(attr_cv_param(ACC_ATTR_START_TIME_STAMP, v));
                 tags.push(MTI_UNKNOWN);
-                parents.push(0);
             }
         }
 
@@ -1011,7 +914,6 @@ fn build_global_meta_items(
                     v,
                 ));
                 tags.push(MTI_UNKNOWN);
-                parents.push(0);
             }
         }
 
@@ -1019,7 +921,6 @@ fn build_global_meta_items(
             if !v.is_empty() {
                 out.push(attr_cv_param(ACC_ATTR_DEFAULT_SOURCE_FILE_REF, v));
                 tags.push(MTI_UNKNOWN);
-                parents.push(0);
             }
         }
 
@@ -1027,7 +928,6 @@ fn build_global_meta_items(
             if !v.is_empty() {
                 out.push(attr_cv_param(ACC_ATTR_SAMPLE_REF, v));
                 tags.push(MTI_UNKNOWN);
-                parents.push(0);
             }
         }
 
@@ -1037,7 +937,6 @@ fn build_global_meta_items(
                 if !r.is_empty() {
                     out.push(attr_cv_param(ACC_ATTR_REF, r));
                     tags.push(MTI_UNKNOWN);
-                    parents.push(0);
                 }
             }
         }
@@ -1047,7 +946,6 @@ fn build_global_meta_items(
                 if !g.cv_params.is_empty() {
                     out.extend_from_slice(&g.cv_params);
                     tags.resize(tags.len() + g.cv_params.len(), MTI_UNKNOWN);
-                    parents.resize(parents.len() + g.cv_params.len(), 0);
                 }
             }
         }
@@ -1055,15 +953,10 @@ fn build_global_meta_items(
         if !run.cv_params.is_empty() {
             out.extend_from_slice(&run.cv_params);
             tags.resize(tags.len() + run.cv_params.len(), MTI_UNKNOWN);
-            parents.resize(parents.len() + run.cv_params.len(), 0);
         }
 
         if !out.is_empty() {
-            items.push(GlobalMetaItem {
-                cvs: out,
-                tags,
-                parents,
-            });
+            items.push(GlobalMetaItem { cvs: out, tags });
             n_run = 1;
         }
     }
@@ -1074,15 +967,12 @@ fn build_global_meta_items(
             // Tag: ReferenceableParamGroup
             let mut out = Vec::new();
             let mut tags = Vec::new();
-            let mut parents = Vec::new();
 
             // Tag: ReferenceableParamGroup
             push_attr_string_tagged(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::ReferenceableParamGroup,
-                0,
                 ACC_ATTR_ID,
                 g.id.as_str(),
             );
@@ -1090,17 +980,11 @@ fn build_global_meta_items(
             extend_tagged(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::ReferenceableParamGroup,
-                0,
                 &g.cv_params,
             );
 
-            items.push(GlobalMetaItem {
-                cvs: out,
-                tags,
-                parents,
-            });
+            items.push(GlobalMetaItem { cvs: out, tags });
         }
     }
     let n_ref_param_groups = (items.len() - ref_start) as u32;
@@ -1111,15 +995,12 @@ fn build_global_meta_items(
             // Tag: Sample
             let mut out = Vec::new();
             let mut tags = Vec::new();
-            let mut parents = Vec::new();
 
             // Tag: Sample
             push_attr_string_tagged(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::Sample,
-                0,
                 ACC_ATTR_ID,
                 s.id.as_str(),
             );
@@ -1127,9 +1008,7 @@ fn build_global_meta_items(
             push_attr_string_tagged(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::Sample,
-                0,
                 ACC_ATTR_NAME,
                 s.name.as_str(),
             );
@@ -1139,28 +1018,15 @@ fn build_global_meta_items(
                 extend_ref_group_cv_params(
                     &mut out,
                     &mut tags,
-                    &mut parents,
                     TagId::Sample,
-                    0,
                     std::slice::from_ref(r),
                     ref_groups,
                 );
             }
             // Tag: Sample
-            extend_tagged(
-                &mut out,
-                &mut tags,
-                &mut parents,
-                TagId::Sample,
-                0,
-                &s.cv_params,
-            );
+            extend_tagged(&mut out, &mut tags, TagId::Sample, &s.cv_params);
 
-            items.push(GlobalMetaItem {
-                cvs: out,
-                tags,
-                parents,
-            });
+            items.push(GlobalMetaItem { cvs: out, tags });
         }
     }
     let n_samples = (items.len() - samples_start) as u32;
@@ -1171,15 +1037,12 @@ fn build_global_meta_items(
             // Tag: Instrument
             let mut out = Vec::new();
             let mut tags = Vec::new();
-            let mut parents = Vec::new();
 
             // Tag: Instrument
             push_attr_string_tagged(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::Instrument,
-                0,
                 ACC_ATTR_ID,
                 ic.id.as_str(),
             );
@@ -1188,30 +1051,19 @@ fn build_global_meta_items(
             extend_ref_group_cv_params(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::Instrument,
-                0,
                 &ic.referenceable_param_group_ref,
                 ref_groups,
             );
             // Tag: Instrument
-            extend_tagged(
-                &mut out,
-                &mut tags,
-                &mut parents,
-                TagId::Instrument,
-                0,
-                &ic.cv_param,
-            );
+            extend_tagged(&mut out, &mut tags, TagId::Instrument, &ic.cv_param);
 
             if let Some(cl) = &ic.component_list {
                 for s in &cl.source {
                     push_attr_usize_tagged(
                         &mut out,
                         &mut tags,
-                        &mut parents,
                         TagId::ComponentSource,
-                        0,
                         ACC_ATTR_ORDER,
                         s.order,
                     );
@@ -1219,29 +1071,18 @@ fn build_global_meta_items(
                     extend_ref_group_cv_params(
                         &mut out,
                         &mut tags,
-                        &mut parents,
                         TagId::ComponentSource,
-                        0,
                         &s.referenceable_param_group_ref,
                         ref_groups,
                     );
-                    extend_tagged(
-                        &mut out,
-                        &mut tags,
-                        &mut parents,
-                        TagId::ComponentSource,
-                        0,
-                        &s.cv_param,
-                    );
+                    extend_tagged(&mut out, &mut tags, TagId::ComponentSource, &s.cv_param);
                 }
 
                 for a in &cl.analyzer {
                     push_attr_usize_tagged(
                         &mut out,
                         &mut tags,
-                        &mut parents,
                         TagId::ComponentAnalyzer,
-                        0,
                         ACC_ATTR_ORDER,
                         a.order,
                     );
@@ -1249,29 +1090,18 @@ fn build_global_meta_items(
                     extend_ref_group_cv_params(
                         &mut out,
                         &mut tags,
-                        &mut parents,
                         TagId::ComponentAnalyzer,
-                        0,
                         &a.referenceable_param_group_ref,
                         ref_groups,
                     );
-                    extend_tagged(
-                        &mut out,
-                        &mut tags,
-                        &mut parents,
-                        TagId::ComponentAnalyzer,
-                        0,
-                        &a.cv_param,
-                    );
+                    extend_tagged(&mut out, &mut tags, TagId::ComponentAnalyzer, &a.cv_param);
                 }
 
                 for d in &cl.detector {
                     push_attr_usize_tagged(
                         &mut out,
                         &mut tags,
-                        &mut parents,
                         TagId::ComponentDetector,
-                        0,
                         ACC_ATTR_ORDER,
                         d.order,
                     );
@@ -1279,28 +1109,15 @@ fn build_global_meta_items(
                     extend_ref_group_cv_params(
                         &mut out,
                         &mut tags,
-                        &mut parents,
                         TagId::ComponentDetector,
-                        0,
                         &d.referenceable_param_group_ref,
                         ref_groups,
                     );
-                    extend_tagged(
-                        &mut out,
-                        &mut tags,
-                        &mut parents,
-                        TagId::ComponentDetector,
-                        0,
-                        &d.cv_param,
-                    );
+                    extend_tagged(&mut out, &mut tags, TagId::ComponentDetector, &d.cv_param);
                 }
             }
 
-            items.push(GlobalMetaItem {
-                cvs: out,
-                tags,
-                parents,
-            });
+            items.push(GlobalMetaItem { cvs: out, tags });
         }
     }
     let n_instrument_configs = (items.len() - instr_start) as u32;
@@ -1311,15 +1128,12 @@ fn build_global_meta_items(
             // Tag: Software (+ SoftwareParam)
             let mut out = Vec::new();
             let mut tags = Vec::new();
-            let mut parents = Vec::new();
 
             // Tag: Software
             push_attr_string_tagged(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::Software,
-                0,
                 ACC_ATTR_ID,
                 s.id.as_str(),
             );
@@ -1332,9 +1146,7 @@ fn build_global_meta_items(
                 push_attr_string_tagged(
                     &mut out,
                     &mut tags,
-                    &mut parents,
                     TagId::Software,
-                    0,
                     ACC_ATTR_VERSION,
                     ver,
                 );
@@ -1345,9 +1157,7 @@ fn build_global_meta_items(
                 push_tagged(
                     &mut out,
                     &mut tags,
-                    &mut parents,
                     TagId::SoftwareParam,
-                    0,
                     CvParam {
                         cv_ref: p.cv_ref.clone(),
                         accession: Some(p.accession.clone()),
@@ -1360,20 +1170,9 @@ fn build_global_meta_items(
                 );
             }
             // Tag: Software
-            extend_tagged(
-                &mut out,
-                &mut tags,
-                &mut parents,
-                TagId::Software,
-                0,
-                &s.cv_param,
-            );
+            extend_tagged(&mut out, &mut tags, TagId::Software, &s.cv_param);
 
-            items.push(GlobalMetaItem {
-                cvs: out,
-                tags,
-                parents,
-            });
+            items.push(GlobalMetaItem { cvs: out, tags });
         }
     }
     let n_software = (items.len() - sw_start) as u32;
@@ -1384,15 +1183,12 @@ fn build_global_meta_items(
             // Tag: DataProcessing (+ ProcessingMethod)
             let mut out = Vec::new();
             let mut tags = Vec::new();
-            let mut parents = Vec::new();
 
             // Tag: DataProcessing
             push_attr_string_tagged(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::DataProcessing,
-                0,
                 ACC_ATTR_ID,
                 dp.id.as_str(),
             );
@@ -1402,28 +1198,15 @@ fn build_global_meta_items(
                 extend_ref_group_cv_params(
                     &mut out,
                     &mut tags,
-                    &mut parents,
                     TagId::ProcessingMethod,
-                    0,
                     &m.referenceable_param_group_ref,
                     ref_groups,
                 );
                 // Tag: ProcessingMethod
-                extend_tagged(
-                    &mut out,
-                    &mut tags,
-                    &mut parents,
-                    TagId::ProcessingMethod,
-                    0,
-                    &m.cv_param,
-                );
+                extend_tagged(&mut out, &mut tags, TagId::ProcessingMethod, &m.cv_param);
             }
 
-            items.push(GlobalMetaItem {
-                cvs: out,
-                tags,
-                parents,
-            });
+            items.push(GlobalMetaItem { cvs: out, tags });
         }
     }
     let n_data_processing = (items.len() - dp_start) as u32;
@@ -1434,28 +1217,17 @@ fn build_global_meta_items(
             // Tag: ScanSettings
             let mut out = Vec::new();
             let mut tags = Vec::new();
-            let mut parents = Vec::new();
 
             if let Some(id) = ss.id.as_deref() {
                 // Tag: ScanSettings
-                push_attr_string_tagged(
-                    &mut out,
-                    &mut tags,
-                    &mut parents,
-                    TagId::ScanSettings,
-                    0,
-                    ACC_ATTR_ID,
-                    id,
-                );
+                push_attr_string_tagged(&mut out, &mut tags, TagId::ScanSettings, ACC_ATTR_ID, id);
             }
             if let Some(icr) = ss.instrument_configuration_ref.as_deref() {
                 // Tag: ScanSettings
                 push_attr_string_tagged(
                     &mut out,
                     &mut tags,
-                    &mut parents,
                     TagId::ScanSettings,
-                    0,
                     ACC_ATTR_INSTRUMENT_CONFIGURATION_REF,
                     icr,
                 );
@@ -1467,9 +1239,7 @@ fn build_global_meta_items(
                     push_attr_string_tagged(
                         &mut out,
                         &mut tags,
-                        &mut parents,
                         TagId::SourceFileRef,
-                        0,
                         ACC_ATTR_REF,
                         sref.r#ref.as_str(),
                     );
@@ -1480,21 +1250,12 @@ fn build_global_meta_items(
             extend_ref_group_cv_params(
                 &mut out,
                 &mut tags,
-                &mut parents,
                 TagId::ScanSettings,
-                0,
                 &ss.referenceable_param_group_refs,
                 ref_groups,
             );
             // Tag: ScanSettings
-            extend_tagged(
-                &mut out,
-                &mut tags,
-                &mut parents,
-                TagId::ScanSettings,
-                0,
-                &ss.cv_params,
-            );
+            extend_tagged(&mut out, &mut tags, TagId::ScanSettings, &ss.cv_params);
 
             if let Some(tl) = &ss.target_list {
                 for t in &tl.targets {
@@ -1502,29 +1263,16 @@ fn build_global_meta_items(
                     extend_ref_group_cv_params(
                         &mut out,
                         &mut tags,
-                        &mut parents,
                         TagId::Target,
-                        0,
                         &t.referenceable_param_group_refs,
                         ref_groups,
                     );
                     // Tag: Target
-                    extend_tagged(
-                        &mut out,
-                        &mut tags,
-                        &mut parents,
-                        TagId::Target,
-                        0,
-                        &t.cv_params,
-                    );
+                    extend_tagged(&mut out, &mut tags, TagId::Target, &t.cv_params);
                 }
             }
 
-            items.push(GlobalMetaItem {
-                cvs: out,
-                tags,
-                parents,
-            });
+            items.push(GlobalMetaItem { cvs: out, tags });
         }
     }
     let n_acquisition_settings = (items.len() - acq_start) as u32;
@@ -1534,29 +1282,17 @@ fn build_global_meta_items(
         for cv in &cl.cv {
             let mut out = Vec::new();
             let mut tags = Vec::new();
-            let mut parents = Vec::new();
 
             out.push(cv_field(ACC_CV_ID, Some(cv.id.as_str())));
             tags.push(MTI_UNKNOWN);
-            parents.push(0);
-
             out.push(cv_field(ACC_CV_FULL_NAME, cv.full_name.as_deref()));
             tags.push(MTI_UNKNOWN);
-            parents.push(0);
-
             out.push(cv_field(ACC_CV_VERSION, cv.version.as_deref()));
             tags.push(MTI_UNKNOWN);
-            parents.push(0);
-
             out.push(cv_field(ACC_CV_URI, cv.uri.as_deref()));
             tags.push(MTI_UNKNOWN);
-            parents.push(0);
 
-            items.push(GlobalMetaItem {
-                cvs: out,
-                tags,
-                parents,
-            });
+            items.push(GlobalMetaItem { cvs: out, tags });
         }
     }
     let n_cvs = (items.len() - cv_start) as u32;
@@ -1593,15 +1329,13 @@ fn build_ref_group_map<'a>(mzml: &'a MzML) -> HashMap<&'a str, &'a Referenceable
 fn extend_ref_group_cv_params(
     out: &mut Vec<CvParam>,
     tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
     tag: TagId,
-    parent_idx: u32,
     refs: &[ReferenceableParamGroupRef],
     ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
 ) {
     for r in refs {
         if let Some(g) = ref_groups.get(r.r#ref.as_str()) {
-            extend_tagged(out, tags, parents, tag, parent_idx, &g.cv_params);
+            extend_tagged(out, tags, tag, &g.cv_params);
         }
     }
 }
@@ -1610,7 +1344,6 @@ fn extend_ref_group_cv_params(
 fn flatten_spectrum_metadata_into(
     out: &mut Vec<CvParam>,
     tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
     spectrum: &Spectrum,
     ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
     x_accession_tail: u32,
@@ -1619,25 +1352,17 @@ fn flatten_spectrum_metadata_into(
     y_store_f64: bool,
     f32_compress: bool,
 ) {
+    // Tag: Spectrum
     push_attr_string_tagged(
         out,
         tags,
-        parents,
         TagId::Spectrum,
-        0,
         ACC_ATTR_ID,
         spectrum.id.as_str(),
     );
-    push_attr_u32_tagged(
-        out,
-        tags,
-        parents,
-        TagId::Spectrum,
-        0,
-        ACC_ATTR_INDEX,
-        spectrum.index,
-    );
-
+    // Tag: Spectrum
+    push_attr_u32_tagged(out, tags, TagId::Spectrum, ACC_ATTR_INDEX, spectrum.index);
+    // Tag: Spectrum
     let value: Option<u32> = spectrum
         .default_array_length
         .map(|n| u32::try_from(n).expect("default_array_length doesn't fit in u32"));
@@ -1645,80 +1370,75 @@ fn flatten_spectrum_metadata_into(
     push_attr_usize_tagged(
         out,
         tags,
-        parents,
         TagId::Spectrum,
-        0,
         ACC_ATTR_DEFAULT_ARRAY_LENGTH,
         value,
     );
 
+    // Tag: Spectrum
     extend_ref_group_cv_params(
         out,
         tags,
-        parents,
         TagId::Spectrum,
-        0,
         &spectrum.referenceable_param_group_refs,
         ref_groups,
     );
-    extend_tagged(out, tags, parents, TagId::Spectrum, 0, &spectrum.cv_params);
+    // Tag: Spectrum
+    extend_tagged(out, tags, TagId::Spectrum, &spectrum.cv_params);
 
     if let Some(sd) = &spectrum.spectrum_description {
+        // Tag: SpectrumDescription
         extend_ref_group_cv_params(
             out,
             tags,
-            parents,
             TagId::SpectrumDescription,
-            0,
             &sd.referenceable_param_group_refs,
             ref_groups,
         );
-        extend_tagged(
-            out,
-            tags,
-            parents,
-            TagId::SpectrumDescription,
-            0,
-            &sd.cv_params,
-        );
+        // Tag: SpectrumDescription
+        extend_tagged(out, tags, TagId::SpectrumDescription, &sd.cv_params);
 
         if let Some(sl) = &sd.scan_list {
-            flatten_scan_list(out, tags, parents, sl, ref_groups);
+            // Tag: ScanList
+            flatten_scan_list(out, tags, sl, ref_groups);
         }
         if let Some(pl) = &sd.precursor_list {
-            flatten_precursor_list(out, tags, parents, pl, ref_groups);
+            // Tag: PrecursorList
+            flatten_precursor_list(out, tags, pl, ref_groups);
         }
         if let Some(pl) = &sd.product_list {
-            flatten_product_list(out, tags, parents, pl, ref_groups);
+            // Tag: ProductList
+            flatten_product_list(out, tags, pl, ref_groups);
         }
     }
 
     if let Some(sl) = &spectrum.scan_list {
-        flatten_scan_list(out, tags, parents, sl, ref_groups);
+        // Tag: ScanList
+        flatten_scan_list(out, tags, sl, ref_groups);
     }
     if let Some(pl) = &spectrum.precursor_list {
-        flatten_precursor_list(out, tags, parents, pl, ref_groups);
+        // Tag: PrecursorList
+        flatten_precursor_list(out, tags, pl, ref_groups);
     }
     if let Some(pl) = &spectrum.product_list {
-        flatten_product_list(out, tags, parents, pl, ref_groups);
+        // Tag: ProductList
+        flatten_product_list(out, tags, pl, ref_groups);
     }
 
     if let Some(bal) = &spectrum.binary_data_array_list {
         for ba in &bal.binary_data_arrays {
+            // Tag: BinaryDataArray
             extend_ref_group_cv_params(
                 out,
                 tags,
-                parents,
                 TagId::BinaryDataArray,
-                0,
                 &ba.referenceable_param_group_refs,
                 ref_groups,
             );
+            // Tag: BinaryDataArray
             extend_binary_data_array_cv_params(
                 out,
                 tags,
-                parents,
-                0,
                 ba,
                 x_accession_tail,
                 y_accession_tail,
@@ -1734,7 +1454,6 @@ fn flatten_spectrum_metadata_into(
 fn flatten_chromatogram_metadata_into(
     out: &mut Vec<CvParam>,
     tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
     chrom: &Chromatogram,
     ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
     x_accession_tail: u32,
@@ -1743,25 +1462,17 @@ fn flatten_chromatogram_metadata_into(
     y_store_f64: bool,
     f32_compress: bool,
 ) {
+    // Tag: Chromatogram
     push_attr_string_tagged(
         out,
         tags,
-        parents,
         TagId::Chromatogram,
-        0,
         ACC_ATTR_ID,
         chrom.id.as_str(),
     );
-    push_attr_u32_tagged(
-        out,
-        tags,
-        parents,
-        TagId::Chromatogram,
-        0,
-        ACC_ATTR_INDEX,
-        chrom.index,
-    );
-
+    // Tag: Chromatogram
+    push_attr_u32_tagged(out, tags, TagId::Chromatogram, ACC_ATTR_INDEX, chrom.index);
+    // Tag: Chromatogram
     let value: Option<u32> = chrom
         .default_array_length
         .map(|n| u32::try_from(n).expect("default_array_length doesn't fit in u32"));
@@ -1769,47 +1480,45 @@ fn flatten_chromatogram_metadata_into(
     push_attr_usize_tagged(
         out,
         tags,
-        parents,
         TagId::Chromatogram,
-        0,
         ACC_ATTR_DEFAULT_ARRAY_LENGTH,
         value,
     );
 
+    // Tag: Chromatogram
     extend_ref_group_cv_params(
         out,
         tags,
-        parents,
         TagId::Chromatogram,
-        0,
         &chrom.referenceable_param_group_refs,
         ref_groups,
     );
-    extend_tagged(out, tags, parents, TagId::Chromatogram, 0, &chrom.cv_params);
+    // Tag: Chromatogram
+    extend_tagged(out, tags, TagId::Chromatogram, &chrom.cv_params);
 
     if let Some(p) = &chrom.precursor {
-        flatten_precursor(out, tags, parents, p, ref_groups);
+        // Tag: Precursor
+        flatten_precursor(out, tags, p, ref_groups);
     }
     if let Some(p) = &chrom.product {
-        flatten_product(out, tags, parents, p, ref_groups);
+        // Tag: Product
+        flatten_product(out, tags, p, ref_groups);
     }
 
     if let Some(bal) = &chrom.binary_data_array_list {
         for ba in &bal.binary_data_arrays {
+            // Tag: BinaryDataArray
             extend_ref_group_cv_params(
                 out,
                 tags,
-                parents,
                 TagId::BinaryDataArray,
-                0,
                 &ba.referenceable_param_group_refs,
                 ref_groups,
             );
+            // Tag: BinaryDataArray
             extend_binary_data_array_cv_params(
                 out,
                 tags,
-                parents,
-                0,
                 ba,
                 x_accession_tail,
                 y_accession_tail,
@@ -1825,25 +1534,25 @@ fn flatten_chromatogram_metadata_into(
 fn flatten_scan_list(
     out: &mut Vec<CvParam>,
     tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
     scan_list: &ScanList,
     ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
 ) {
     for scan in &scan_list.scans {
+        // Tag: Scan
         extend_ref_group_cv_params(
             out,
             tags,
-            parents,
             TagId::Scan,
-            0,
             &scan.referenceable_param_group_refs,
             ref_groups,
         );
-        extend_tagged(out, tags, parents, TagId::Scan, 0, &scan.cv_params);
+        // Tag: Scan
+        extend_tagged(out, tags, TagId::Scan, &scan.cv_params);
 
         if let Some(wl) = &scan.scan_window_list {
             for w in &wl.scan_windows {
-                extend_tagged(out, tags, parents, TagId::ScanWindow, 0, &w.cv_params);
+                // Tag: ScanWindow
+                extend_tagged(out, tags, TagId::ScanWindow, &w.cv_params);
             }
         }
     }
@@ -1853,12 +1562,12 @@ fn flatten_scan_list(
 fn flatten_precursor_list(
     out: &mut Vec<CvParam>,
     tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
     precursor_list: &PrecursorList,
     ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
 ) {
     for p in &precursor_list.precursors {
-        flatten_precursor(out, tags, parents, p, ref_groups);
+        // Tag: Precursor
+        flatten_precursor(out, tags, p, ref_groups);
     }
 }
 
@@ -1866,59 +1575,51 @@ fn flatten_precursor_list(
 fn flatten_precursor(
     out: &mut Vec<CvParam>,
     tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
     precursor: &Precursor,
     ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
 ) {
     if let Some(r) = precursor.spectrum_ref.as_deref() {
-        push_attr_string_tagged(
-            out,
-            tags,
-            parents,
-            TagId::Precursor,
-            0,
-            ACC_ATTR_SPECTRUM_REF,
-            r,
-        );
+        // Tag: Precursor
+        push_attr_string_tagged(out, tags, TagId::Precursor, ACC_ATTR_SPECTRUM_REF, r);
     }
 
     if let Some(iw) = &precursor.isolation_window {
+        // Tag: IsolationWindow
         extend_ref_group_cv_params(
             out,
             tags,
-            parents,
             TagId::IsolationWindow,
-            0,
             &iw.referenceable_param_group_refs,
             ref_groups,
         );
-        extend_tagged(out, tags, parents, TagId::IsolationWindow, 0, &iw.cv_params);
+        // Tag: IsolationWindow
+        extend_tagged(out, tags, TagId::IsolationWindow, &iw.cv_params);
     }
     if let Some(sil) = &precursor.selected_ion_list {
         for ion in &sil.selected_ions {
+            // Tag: SelectedIon
             extend_ref_group_cv_params(
                 out,
                 tags,
-                parents,
                 TagId::SelectedIon,
-                0,
                 &ion.referenceable_param_group_refs,
                 ref_groups,
             );
-            extend_tagged(out, tags, parents, TagId::SelectedIon, 0, &ion.cv_params);
+            // Tag: SelectedIon
+            extend_tagged(out, tags, TagId::SelectedIon, &ion.cv_params);
         }
     }
     if let Some(act) = &precursor.activation {
+        // Tag: Activation
         extend_ref_group_cv_params(
             out,
             tags,
-            parents,
             TagId::Activation,
-            0,
             &act.referenceable_param_group_refs,
             ref_groups,
         );
-        extend_tagged(out, tags, parents, TagId::Activation, 0, &act.cv_params);
+        // Tag: Activation
+        extend_tagged(out, tags, TagId::Activation, &act.cv_params);
     }
 }
 
@@ -1926,12 +1627,12 @@ fn flatten_precursor(
 fn flatten_product_list(
     out: &mut Vec<CvParam>,
     tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
     product_list: &ProductList,
     ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
 ) {
     for p in &product_list.products {
-        flatten_product(out, tags, parents, p, ref_groups);
+        // Tag: Product
+        flatten_product(out, tags, p, ref_groups);
     }
 }
 
@@ -1939,21 +1640,20 @@ fn flatten_product_list(
 fn flatten_product(
     out: &mut Vec<CvParam>,
     tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
     product: &Product,
     ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
 ) {
     if let Some(iw) = &product.isolation_window {
+        // Tag: IsolationWindow
         extend_ref_group_cv_params(
             out,
             tags,
-            parents,
             TagId::IsolationWindow,
-            0,
             &iw.referenceable_param_group_refs,
             ref_groups,
         );
-        extend_tagged(out, tags, parents, TagId::IsolationWindow, 0, &iw.cv_params);
+        // Tag: IsolationWindow
+        extend_tagged(out, tags, TagId::IsolationWindow, &iw.cv_params);
     }
 }
 
@@ -1961,14 +1661,12 @@ fn flatten_product(
 fn extend_binary_data_array_cv_params(
     out: &mut Vec<CvParam>,
     tags: &mut Vec<u8>,
-    parents: &mut Vec<u32>,
-    parent_idx: u32,
     ba: &BinaryDataArray,
     x_accession_tail: u32,
     y_accession_tail: u32,
-    _x_store_f64: bool,
-    _y_store_f64: bool,
-    f32_compress: bool,
+    _x_store_f64: bool, // kept for call-site stability (unused with this policy)
+    _y_store_f64: bool, // kept for call-site stability (unused with this policy)
+    f32_compress: bool, // NEW: decides whether we rewrite the float cvParam
 ) {
     let mut is_x = false;
     let mut is_y = false;
@@ -1982,6 +1680,9 @@ fn extend_binary_data_array_cv_params(
         }
     }
 
+    // NEW POLICY:
+    // - if f32_compress: force 32-bit float cvParam for x/y arrays
+    // - else: preserve exactly what mzML declared (no rewrite)
     let desired_float_tail = if f32_compress && (is_x || is_y) {
         Some(ACC_32BIT_FLOAT)
     } else {
@@ -1995,51 +1696,26 @@ fn extend_binary_data_array_cv_params(
 
         if tail == ACC_32BIT_FLOAT || tail == ACC_64BIT_FLOAT {
             if let Some(desired) = desired_float_tail {
+                // Force exactly one float param (32-bit) and drop any existing float param(s)
                 if !wrote_float {
-                    push_tagged(
-                        out,
-                        tags,
-                        parents,
-                        TagId::BinaryDataArray,
-                        parent_idx,
-                        ms_float_param(desired),
-                    );
+                    push_tagged(out, tags, TagId::BinaryDataArray, ms_float_param(desired));
                     wrote_float = true;
                 }
-                continue;
+                continue; // IMPORTANT: do NOT pass through original float param
             } else {
-                push_tagged(
-                    out,
-                    tags,
-                    parents,
-                    TagId::BinaryDataArray,
-                    parent_idx,
-                    cv.clone(),
-                );
+                // Preserve original float param as-is
+                push_tagged(out, tags, TagId::BinaryDataArray, cv.clone());
                 wrote_float = true;
             }
         } else {
-            push_tagged(
-                out,
-                tags,
-                parents,
-                TagId::BinaryDataArray,
-                parent_idx,
-                cv.clone(),
-            );
+            push_tagged(out, tags, TagId::BinaryDataArray, cv.clone());
         }
     }
 
+    // If forcing f32 and there was no float cvParam originally, inject one
     if let Some(desired) = desired_float_tail {
         if !wrote_float {
-            push_tagged(
-                out,
-                tags,
-                parents,
-                TagId::BinaryDataArray,
-                parent_idx,
-                ms_float_param(desired),
-            );
+            push_tagged(out, tags, TagId::BinaryDataArray, ms_float_param(desired));
         }
     }
 }
@@ -2065,10 +1741,8 @@ fn ms_float_param(accession_tail: u32) -> CvParam {
 #[inline]
 fn pack_cv_param(
     tag_id: u8,
-    parent_idx: u32,
     cv: &CvParam,
     tag_ids: &mut Vec<u8>,
-    parent_indices: &mut Vec<u32>,
     ref_codes: &mut Vec<u8>,
     accession_numbers: &mut Vec<u32>,
     unit_ref_codes: &mut Vec<u8>,
@@ -2083,7 +1757,6 @@ fn pack_cv_param(
     string_index: &mut u32,
 ) {
     tag_ids.push(tag_id);
-    parent_indices.push(parent_idx);
     ref_codes.push(cv_ref_code_from_str(cv.cv_ref.as_deref()));
     accession_numbers.push(parse_accession_tail(cv.accession.as_deref()));
     unit_ref_codes.push(cv_ref_code_from_str(cv.unit_cv_ref.as_deref()));
@@ -2120,7 +1793,7 @@ fn pack_cv_param(
 /// <cvParam>
 fn pack_meta<T, F>(items: &[T], meta_of: F) -> PackedMeta
 where
-    F: Fn(&T) -> (&[CvParam], &[u8], &[u32]),
+    F: Fn(&T) -> (&[CvParam], &[u8]),
 {
     let item_count = items.len();
 
@@ -2130,7 +1803,6 @@ where
     }
 
     let mut index_offsets = Vec::with_capacity(item_count + 1);
-    let mut parent_indices = Vec::with_capacity(total_meta_count);
     let mut tag_ids = Vec::with_capacity(total_meta_count);
     let mut ref_codes = Vec::with_capacity(total_meta_count);
     let mut accession_numbers = Vec::with_capacity(total_meta_count);
@@ -2151,17 +1823,14 @@ where
     index_offsets.push(0);
 
     for item in items {
-        let (xs, ts, ps) = meta_of(item);
+        let (xs, ts) = meta_of(item);
         debug_assert_eq!(xs.len(), ts.len());
-        debug_assert_eq!(xs.len(), ps.len());
 
         for i in 0..xs.len() {
             pack_cv_param(
                 ts[i],
-                ps[i],
                 &xs[i],
                 &mut tag_ids,
-                &mut parent_indices,
                 &mut ref_codes,
                 &mut accession_numbers,
                 &mut unit_ref_codes,
@@ -2183,7 +1852,6 @@ where
 
     PackedMeta {
         index_offsets,
-        parent_indices,
         tag_ids,
         ref_codes,
         accession_numbers,
@@ -2198,18 +1866,13 @@ where
     }
 }
 
-fn pack_meta_streaming<T, F>(
-    items: &[T],
-    mut fill: F,
-    mut fill_parents: Option<&mut dyn FnMut(&T, &[u8], &mut [u32])>,
-) -> PackedMeta
+fn pack_meta_streaming<T, F>(items: &[T], mut fill: F) -> PackedMeta
 where
-    F: FnMut(&mut Vec<CvParam>, &mut Vec<u8>, &mut Vec<u32>, &T),
+    F: FnMut(&mut Vec<CvParam>, &mut Vec<u8>, &T),
 {
     let item_count = items.len();
 
     let mut index_offsets = Vec::with_capacity(item_count + 1);
-    let mut parent_indices: Vec<u32> = Vec::new();
     let mut tag_ids: Vec<u8> = Vec::new();
     let mut ref_codes: Vec<u8> = Vec::new();
     let mut accession_numbers: Vec<u32> = Vec::new();
@@ -2225,7 +1888,6 @@ where
 
     let mut scratch: Vec<CvParam> = Vec::new();
     let mut scratch_tags: Vec<u8> = Vec::new();
-    let mut scratch_parents: Vec<u32> = Vec::new();
 
     let mut numeric_index: u32 = 0;
     let mut string_index: u32 = 0;
@@ -2236,23 +1898,11 @@ where
     for item in items {
         scratch.clear();
         scratch_tags.clear();
-        scratch_parents.clear();
-
-        fill(&mut scratch, &mut scratch_tags, &mut scratch_parents, item);
+        fill(&mut scratch, &mut scratch_tags, item);
 
         debug_assert_eq!(scratch.len(), scratch_tags.len());
-        if scratch_parents.len() != scratch.len() {
-            scratch_parents.resize(scratch.len(), 0);
-        }
-
-        if let Some(fp) = fill_parents.as_deref_mut() {
-            fp(item, &scratch_tags, scratch_parents.as_mut_slice());
-        }
 
         let n = scratch.len();
-
-        parent_indices.reserve(n);
-        tag_ids.reserve(n);
         ref_codes.reserve(n);
         accession_numbers.reserve(n);
         unit_ref_codes.reserve(n);
@@ -2263,10 +1913,8 @@ where
         for i in 0..n {
             pack_cv_param(
                 scratch_tags[i],
-                scratch_parents[i],
                 &scratch[i],
                 &mut tag_ids,
-                &mut parent_indices,
                 &mut ref_codes,
                 &mut accession_numbers,
                 &mut unit_ref_codes,
@@ -2288,7 +1936,6 @@ where
 
     PackedMeta {
         index_offsets,
-        parent_indices,
         tag_ids,
         ref_codes,
         accession_numbers,
@@ -2305,7 +1952,6 @@ where
 
 fn packed_meta_byte_len(meta: &PackedMeta) -> usize {
     meta.index_offsets.len() * 4
-        + meta.parent_indices.len() * 4
         + meta.tag_ids.len()
         + meta.ref_codes.len()
         + meta.accession_numbers.len() * 4
@@ -2322,9 +1968,6 @@ fn packed_meta_byte_len(meta: &PackedMeta) -> usize {
 fn write_packed_meta_into(buf: &mut Vec<u8>, meta: &PackedMeta) {
     for &v in &meta.index_offsets {
         write_u32_le(buf, v);
-    }
-    for &p in &meta.parent_indices {
-        write_u32_le(buf, p);
     }
     buf.extend_from_slice(&meta.tag_ids);
     buf.extend_from_slice(&meta.ref_codes);
@@ -2550,107 +2193,4 @@ fn find_xy_ba<'a>(
     }
 
     (x, y)
-}
-
-#[inline]
-fn ref_group_cv_len(
-    refs: &[ReferenceableParamGroupRef],
-    ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
-) -> usize {
-    refs.iter()
-        .filter_map(|r| ref_groups.get(r.r#ref.as_str()))
-        .map(|g| g.cv_params.len())
-        .sum()
-}
-
-#[inline]
-fn bda_effective_cv_len(
-    ba: &BinaryDataArray,
-    x_accession_tail: u32,
-    y_accession_tail: u32,
-    f32_compress: bool,
-) -> usize {
-    let mut is_x = false;
-    let mut is_y = false;
-    for cv in &ba.cv_params {
-        let tail = parse_accession_tail(cv.accession.as_deref());
-        if tail == x_accession_tail {
-            is_x = true;
-        } else if tail == y_accession_tail {
-            is_y = true;
-        }
-    }
-
-    let force_f32 = f32_compress && (is_x || is_y);
-
-    if !force_f32 {
-        return ba.cv_params.len();
-    }
-
-    let non_float = ba
-        .cv_params
-        .iter()
-        .filter(|cv| {
-            let tail = parse_accession_tail(cv.accession.as_deref());
-            tail != ACC_32BIT_FLOAT && tail != ACC_64BIT_FLOAT
-        })
-        .count();
-
-    non_float + 1
-}
-
-fn assign_bda_parents_for_item(
-    parents: &mut [u32], // len == tags.len()
-    tags: &[u8],
-    bal: Option<&BinaryDataArrayList>,
-    ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
-    x_accession_tail: u32,
-    y_accession_tail: u32,
-    f32_compress: bool,
-) {
-    let bda_tag = TagId::BinaryDataArray as u8;
-
-    // positions in the flattened row stream that came from BinaryDataArray
-    let mut bda_positions: Vec<usize> = Vec::new();
-    for (i, &t) in tags.iter().enumerate() {
-        if t == bda_tag {
-            bda_positions.push(i);
-        }
-    }
-
-    if bda_positions.is_empty() {
-        return;
-    }
-
-    let Some(bal) = bal else {
-        panic!("saw BinaryDataArray-tagged rows but item has no BinaryDataArrayList");
-    };
-
-    let mut cursor = 0usize;
-
-    for (ord0, ba) in bal.binary_data_arrays.iter().enumerate() {
-        let ord = (ord0 as u32) + 1; // 1-based parent ids per item
-
-        let need = ref_group_cv_len(&ba.referenceable_param_group_refs, ref_groups)
-            + bda_effective_cv_len(ba, x_accession_tail, y_accession_tail, f32_compress);
-
-        for _ in 0..need {
-            let pos = *bda_positions.get(cursor).unwrap_or_else(|| {
-                panic!(
-                    "BDA parent assignment mismatch: need {} rows for BA#{}, but ran out (cursor={}, total_bda_rows={})",
-                    need, ord, cursor, bda_positions.len()
-                )
-            });
-            parents[pos] = ord;
-            cursor += 1;
-        }
-    }
-
-    if cursor != bda_positions.len() {
-        panic!(
-            "BDA parent assignment mismatch: assigned {} rows, but saw {} BinaryDataArray-tagged rows",
-            cursor,
-            bda_positions.len()
-        );
-    }
 }
