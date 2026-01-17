@@ -221,8 +221,6 @@ pub struct Sample {
     pub id: String,
     pub name: String,
     pub referenceable_param_group_ref: Option<ReferenceableParamGroupRef>,
-    pub cv_params: Vec<CvParam>,
-    pub user_params: Vec<UserParam>,
 }
 
 /// <scanSettingsList> / <acquisitionSettingsList>
@@ -339,6 +337,8 @@ pub struct SpectrumDescription {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ScanList {
     pub count: Option<usize>,
+    pub cv_params: Vec<CvParam>,
+    pub user_params: Vec<UserParam>,
     pub scans: Vec<Scan>,
 }
 
@@ -375,6 +375,8 @@ pub struct ScanWindow {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PrecursorList {
     pub count: Option<usize>,
+    pub cv_params: Vec<CvParam>,
+    pub user_params: Vec<UserParam>,
     pub precursors: Vec<Precursor>,
 }
 
@@ -493,6 +495,7 @@ pub struct Chromatogram {
 /// <spectrum>
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Spectrum {
+    // Attributes
     pub id: String,
     pub index: Option<u32>,
     pub scan_number: Option<u32>,
@@ -503,6 +506,7 @@ pub struct Spectrum {
     pub spot_id: Option<String>,
     pub ms_level: Option<u32>,
 
+    // Children
     pub referenceable_param_group_refs: Vec<ReferenceableParamGroupRef>,
     pub cv_params: Vec<CvParam>,
     pub user_params: Vec<UserParam>,

@@ -14,9 +14,6 @@ const CV_REF_MODE: CvRefMode = CvRefMode::Strict;
 fn anpc_mzml1_1_0_header_sections() {
     let mzml = mzml(&MZML_CACHE, PATH);
 
-    // ----------------------------
-    // cvList
-    // ----------------------------
     let cv_list = mzml.cv_list.as_ref().expect("cvList parsed");
     assert_eq!(cv_list.cv.len(), 2);
 
@@ -41,9 +38,6 @@ fn anpc_mzml1_1_0_header_sections() {
         )
     );
 
-    // ----------------------------
-    // fileDescription
-    // ----------------------------
     let file_desc = &mzml.file_description;
 
     // fileContent
@@ -103,9 +97,6 @@ fn anpc_mzml1_1_0_header_sections() {
         None,
     );
 
-    // ----------------------------
-    // referenceableParamGroupList
-    // ----------------------------
     let rpgl = mzml
         .referenceable_param_group_list
         .as_ref()
@@ -125,9 +116,6 @@ fn anpc_mzml1_1_0_header_sections() {
         None,
     );
 
-    // ----------------------------
-    // softwareList
-    // ----------------------------
     let sw_list = mzml.software_list.as_ref().expect("softwareList parsed");
     assert_eq!(sw_list.software.len(), 3);
 
@@ -175,9 +163,6 @@ fn anpc_mzml1_1_0_header_sections() {
         None,
     );
 
-    // ----------------------------
-    // instrumentConfigurationList
-    // ----------------------------
     let inst_list = mzml
         .instrument_list
         .as_ref()
@@ -270,9 +255,6 @@ fn anpc_mzml1_1_0_header_sections() {
         None,
     );
 
-    // ----------------------------
-    // dataProcessingList
-    // ----------------------------
     let dp_list = mzml
         .data_processing_list
         .as_ref()
@@ -294,9 +276,6 @@ fn anpc_mzml1_1_0_header_sections() {
         None,
     );
 
-    // ----------------------------
-    // run: spectrumList + chromatogramList presence
-    // ----------------------------
     let run = &mzml.run;
 
     let sl = run.spectrum_list.as_ref().expect("spectrumList parsed");
