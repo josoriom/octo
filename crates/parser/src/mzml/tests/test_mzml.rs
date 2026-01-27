@@ -907,9 +907,9 @@ fn anpc_mzml1_1_0_chromatograms() {
         Some("dimensionless unit"),
     );
 }
-const EXPECTED_0_9_F64: [f64; 10] = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
-const EXPECTED_0_9_F32: [f32; 10] = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
-const EXPECTED_0_9_I64: [i64; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+const EXPECTED_0_9_F64: [f64; 10] = [0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+const EXPECTED_0_9_F32: [f32; 10] = [0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+const EXPECTED_0_9_I64: [i64; 10] = [0, 10, 0, 30, 0, 50, 0, 70, 0, 90];
 
 #[test]
 fn anpc_mzml_spectrum_scan_1_binaries() {
@@ -1099,6 +1099,7 @@ fn anpc_mzml_chromatogram_bpc_binaries() {
             .any(|p| p.accession.as_deref() == Some("MS:1000523"))
     );
     assert_eq!(time.numeric_type, Some(NumericType::Float64));
+
     match time.binary.as_ref().expect("time binary present") {
         BinaryData::F64(v) => assert_eq!(&v[..EXPECTED_0_9_F64.len()], &EXPECTED_0_9_F64),
         other => panic!("time expected BinaryData::F64, got {other:?}"),

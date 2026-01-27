@@ -24,7 +24,7 @@ use crate::{
 pub const INDEX_ENTRY_SIZE: usize = 32;
 const BLOCK_DIR_ENTRY_SIZE: usize = 32;
 
-const ARRAY_FILTER_NONE: u8 = 0;
+// const ARRAY_FILTER_NONE: u8 = 0;
 const ARRAY_FILTER_BYTE_SHUFFLE: u8 = 1;
 
 const ACC_MZ_ARRAY: u32 = 1_000_514;

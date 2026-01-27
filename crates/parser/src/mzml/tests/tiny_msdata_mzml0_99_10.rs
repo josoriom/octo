@@ -1,6 +1,7 @@
 use std::sync::OnceLock;
 
 use crate::{
+    BinaryData, NumericType,
     mzml::structs::MzML,
     utilities::test::{
         CvRefMode, assert_cv, assert_software, mzml, spectrum_description, spectrum_precursor_list,
@@ -793,5 +794,121 @@ fn tiny_msdata_mzml0_99_10_second_spectrum() {
         );
         assert_eq!(ba.array_length, expect_len);
         assert_eq!(ba.encoded_length, expect_enc);
+    }
+}
+
+#[test]
+fn tiny_msdata_mzml0_99_9_xml_s19_mz_binary() {
+    let mzml = mzml(&MZML_CACHE, PATH);
+    let run = &mzml.run;
+
+    let sl = run.spectrum_list.as_ref().expect("spectrumList parsed");
+    let s0 = &sl.spectra[0];
+    assert_eq!(s0.id, "S19");
+
+    let bdal = s0
+        .binary_data_array_list
+        .as_ref()
+        .expect("binaryDataArrayList parsed");
+    assert_eq!(bdal.binary_data_arrays.len(), 2);
+
+    let bda = &bdal.binary_data_arrays[0]; // m/z array
+    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.encoded_length, Some(108));
+    assert_eq!(bda.numeric_type, Some(NumericType::Float64));
+
+    let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+
+    match &bda.binary {
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(other) => panic!("S19 m/z: expected BinaryData::F64, got {other:?}"),
+        None => panic!("S19 m/z: missing decoded binary payload (bda.binary is None)"),
+    }
+}
+
+#[test]
+fn tiny_msdata_mzml0_99_9_xml_s19_intensity_binary() {
+    let mzml = mzml(&MZML_CACHE, PATH);
+    let run = &mzml.run;
+
+    let sl = run.spectrum_list.as_ref().expect("spectrumList parsed");
+    let s0 = &sl.spectra[0];
+    assert_eq!(s0.id, "S19");
+
+    let bdal = s0
+        .binary_data_array_list
+        .as_ref()
+        .expect("binaryDataArrayList parsed");
+    assert_eq!(bdal.binary_data_arrays.len(), 2);
+
+    let bda = &bdal.binary_data_arrays[1]; // intensity array
+    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.encoded_length, Some(108));
+    assert_eq!(bda.numeric_type, Some(NumericType::Float64));
+
+    let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+
+    match &bda.binary {
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(other) => panic!("S19 intensity: expected BinaryData::F64, got {other:?}"),
+        None => panic!("S19 intensity: missing decoded binary payload (bda.binary is None)"),
+    }
+}
+
+#[test]
+fn tiny_msdata_mzml0_99_9_xml_s20_mz_binary() {
+    let mzml = mzml(&MZML_CACHE, PATH);
+    let run = &mzml.run;
+
+    let sl = run.spectrum_list.as_ref().expect("spectrumList parsed");
+    let s1 = &sl.spectra[1];
+    assert_eq!(s1.id, "S20");
+
+    let bdal = s1
+        .binary_data_array_list
+        .as_ref()
+        .expect("binaryDataArrayList parsed");
+    assert_eq!(bdal.binary_data_arrays.len(), 2);
+
+    let bda = &bdal.binary_data_arrays[0]; // m/z array
+    assert_eq!(bda.array_length, Some(20));
+    assert_eq!(bda.encoded_length, Some(216));
+    assert_eq!(bda.numeric_type, Some(NumericType::Float64));
+
+    let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+
+    match &bda.binary {
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(other) => panic!("S20 m/z: expected BinaryData::F64, got {other:?}"),
+        None => panic!("S20 m/z: missing decoded binary payload (bda.binary is None)"),
+    }
+}
+
+#[test]
+fn tiny_msdata_mzml0_99_9_xml_s20_intensity_binary() {
+    let mzml = mzml(&MZML_CACHE, PATH);
+    let run = &mzml.run;
+
+    let sl = run.spectrum_list.as_ref().expect("spectrumList parsed");
+    let s1 = &sl.spectra[1];
+    assert_eq!(s1.id, "S20");
+
+    let bdal = s1
+        .binary_data_array_list
+        .as_ref()
+        .expect("binaryDataArrayList parsed");
+    assert_eq!(bdal.binary_data_arrays.len(), 2);
+
+    let bda = &bdal.binary_data_arrays[1]; // intensity array
+    assert_eq!(bda.array_length, Some(20));
+    assert_eq!(bda.encoded_length, Some(216));
+    assert_eq!(bda.numeric_type, Some(NumericType::Float64));
+
+    let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+
+    match &bda.binary {
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(other) => panic!("S20 intensity: expected BinaryData::F64, got {other:?}"),
+        None => panic!("S20 intensity: missing decoded binary payload (bda.binary is None)"),
     }
 }

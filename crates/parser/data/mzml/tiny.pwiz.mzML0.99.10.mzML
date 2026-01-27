@@ -112,13 +112,13 @@
               <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" value=""/>
               <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
               <cvParam cvRef="MS" accession="MS:1000514" name="m/z array" value=""/>
-              <binary>AAAAAAAAAAAAAAAAAADwPwAAAAAAAABAAAAAAAAACEAAAAAAAAAQQAAAAAAAABRAAAAAAAAAGEAAAAAAAAAcQAAAAAAAACBAAAAAAAAAIkAAAAAAAAAkQAAAAAAAACZAAAAAAAAAKEAAAAAAAAAqQAAAAAAAACxA</binary>
+              <binary>mpmZmZmZuT8AAAAAAAAkQJqZmZmZmck/AAAAAAAAPkCamZmZmZnZPwAAAAAAAElAMzMzMzMz4z8AAAAAAIBRQHsUrkfherQ/AAAAAACAVkA=</binary>
             </binaryDataArray>
             <binaryDataArray encodedLength="160" dataProcessingRef="XcaliburProcessing">
               <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" value=""/>
               <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
               <cvParam cvRef="MS" accession="MS:1000515" name="intensity array" value=""/>
-              <binary>AAAAAAAALkAAAAAAAAAsQAAAAAAAACpAAAAAAAAAKEAAAAAAAAAmQAAAAAAAACRAAAAAAAAAIkAAAAAAAAAgQAAAAAAAABxAAAAAAAAAGEAAAAAAAAAUQAAAAAAAABBAAAAAAAAACEAAAAAAAAAAQAAAAAAAAPA/</binary>
+              <binary>mpmZmZmZuT8AAAAAAAAkQJqZmZmZmck/AAAAAAAAPkCamZmZmZnZPwAAAAAAAElAMzMzMzMz4z8AAAAAAIBRQHsUrkfherQ/AAAAAACAVkA=</binary>
             </binaryDataArray>
           </binaryDataArrayList>
           </spectrum>
@@ -165,13 +165,13 @@
               <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" value=""/>
               <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
               <cvParam cvRef="MS" accession="MS:1000514" name="m/z array" value=""/>
-              <binary>AAAAAAAAAAAAAAAAAAAAQAAAAAAAABBAAAAAAAAAGEAAAAAAAAAgQAAAAAAAACRAAAAAAAAAKEAAAAAAAAAsQAAAAAAAADBAAAAAAAAAMkA=</binary>
+              <binary>mpmZmZmZuT8AAAAAAAAkQJqZmZmZmck/AAAAAAAAPkCamZmZmZnZPwAAAAAAAElAMzMzMzMz4z8AAAAAAIBRQHsUrkfherQ/AAAAAACAVkA=</binary>
             </binaryDataArray>
             <binaryDataArray encodedLength="108" dataProcessingRef="XcaliburProcessing">
               <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" value=""/>
               <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
               <cvParam cvRef="MS" accession="MS:1000515" name="intensity array" value=""/>
-              <binary>AAAAAAAANEAAAAAAAAAyQAAAAAAAADBAAAAAAAAALEAAAAAAAAAoQAAAAAAAACRAAAAAAAAAIEAAAAAAAAAYQAAAAAAAABBAAAAAAAAAAEA=</binary>
+              <binary>mpmZmZmZuT8AAAAAAAAkQJqZmZmZmck/AAAAAAAAPkCamZmZmZnZPwAAAAAAAElAMzMzMzMz4z8AAAAAAIBRQHsUrkfherQ/AAAAAACAVkA=</binary>
             </binaryDataArray>
           </binaryDataArrayList>
         </spectrum>
@@ -184,13 +184,13 @@
               <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" value=""/>
               <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
               <cvParam cvRef="MS" accession="MS:1000595" name="time array" value=""/>
-              <binary>AAAAAAAAAAAAAAAAAADwPwAAAAAAAABAAAAAAAAACEAAAAAAAAAQQAAAAAAAABRAAAAAAAAAGEAAAAAAAAAcQAAAAAAAACBAAAAAAAAAIkAAAAAAAAAkQAAAAAAAACZAAAAAAAAAKEAAAAAAAAAqQAAAAAAAACxA</binary>
+              <binary>mpmZmZmZuT8AAAAAAAAkQJqZmZmZmck/AAAAAAAAPkCamZmZmZnZPwAAAAAAAElAMzMzMzMz4z8AAAAAAIBRQHsUrkfherQ/AAAAAACAVkA=</binary>
             </binaryDataArray>
             <binaryDataArray encodedLength="160" dataProcessingRef="pwizconversion">
               <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" value=""/>
               <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
               <cvParam cvRef="MS" accession="MS:1000515" name="intensity array" value=""/>
-              <binary>AAAAAAAALkAAAAAAAAAsQAAAAAAAACpAAAAAAAAAKEAAAAAAAAAmQAAAAAAAACRAAAAAAAAAIkAAAAAAAAAgQAAAAAAAABxAAAAAAAAAGEAAAAAAAAAUQAAAAAAAABBAAAAAAAAACEAAAAAAAAAAQAAAAAAAAPA/</binary>
+              <binary>mpmZmZmZuT8AAAAAAAAkQJqZmZmZmck/AAAAAAAAPkCamZmZmZnZPwAAAAAAAElAMzMzMzMz4z8AAAAAAIBRQHsUrkfherQ/AAAAAACAVkA=</binary>
             </binaryDataArray>
           </binaryDataArrayList>
         </chromatogram>
@@ -201,13 +201,13 @@
               <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" value=""/>
               <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
               <cvParam cvRef="MS" accession="MS:1000595" name="time array" value=""/>
-              <binary>AAAAAAAAAAAAAAAAAADwPwAAAAAAAABAAAAAAAAACEAAAAAAAAAQQAAAAAAAABRAAAAAAAAAGEAAAAAAAAAcQAAAAAAAACBAAAAAAAAAIkA=</binary>
+             <binary>mpmZmZmZuT8AAAAAAAAkQJqZmZmZmck/AAAAAAAAPkCamZmZmZnZPwAAAAAAAElAMzMzMzMz4z8AAAAAAIBRQHsUrkfherQ/AAAAAACAVkA=</binary>
             </binaryDataArray>
             <binaryDataArray encodedLength="108" dataProcessingRef="pwizconversion">
               <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" value=""/>
               <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
               <cvParam cvRef="MS" accession="MS:1000515" name="intensity array" value=""/>
-              <binary>AAAAAAAAJEAAAAAAAAAiQAAAAAAAACBAAAAAAAAAHEAAAAAAAAAYQAAAAAAAABRAAAAAAAAAEEAAAAAAAAAIQAAAAAAAAABAAAAAAAAA8D8=</binary>
+              <binary>mpmZmZmZuT8AAAAAAAAkQJqZmZmZmck/AAAAAAAAPkCamZmZmZnZPwAAAAAAAElAMzMzMzMz4z8AAAAAAIBRQHsUrkfherQ/AAAAAACAVkA=</binary>
             </binaryDataArray>
           </binaryDataArrayList>
         </chromatogram>

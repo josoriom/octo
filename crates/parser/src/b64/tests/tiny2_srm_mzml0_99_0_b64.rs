@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 
 use crate::{
-    mzml::structs::MzML,
+    mzml::structs::{BinaryData, MzML, NumericType},
     utilities::test::{
         CvRefMode, assert_cv, assert_cv_absent, assert_software_param, parse_b, spectrum_by_id,
         spectrum_description, spectrum_precursor_list, spectrum_scan_list,
@@ -509,7 +509,7 @@ fn tiny2_srm_mzml0_99_0_spectrum_s101() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let mz_ba = &bal.binary_data_arrays[0];
-    assert_eq!(mz_ba.array_length, Some(2));
+    assert_eq!(mz_ba.array_length, Some(10));
     assert_eq!(mz_ba.encoded_length, Some(22));
     assert_cv(
         CV_REF_MODE,
@@ -540,7 +540,7 @@ fn tiny2_srm_mzml0_99_0_spectrum_s101() {
     );
 
     let int_ba = &bal.binary_data_arrays[1];
-    assert_eq!(int_ba.array_length, Some(2));
+    assert_eq!(int_ba.array_length, Some(10));
     assert_eq!(int_ba.encoded_length, Some(11));
     assert_cv(
         CV_REF_MODE,
@@ -709,7 +709,7 @@ fn tiny2_srm_mzml0_99_0_spectrum_s102() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let mz_ba = &bal.binary_data_arrays[0];
-    assert_eq!(mz_ba.array_length, Some(43));
+    assert_eq!(mz_ba.array_length, Some(10));
     assert_eq!(mz_ba.encoded_length, Some(5000));
     assert_cv(
         CV_REF_MODE,
@@ -740,7 +740,7 @@ fn tiny2_srm_mzml0_99_0_spectrum_s102() {
     );
 
     let ba1 = &bal.binary_data_arrays[1];
-    assert_eq!(ba1.array_length, Some(43));
+    assert_eq!(ba1.array_length, Some(10));
     assert_eq!(ba1.encoded_length, Some(2500));
     assert_cv(
         CV_REF_MODE,
@@ -769,4 +769,120 @@ fn tiny2_srm_mzml0_99_0_spectrum_s102() {
         Some(""),
         None,
     );
+}
+
+#[test]
+fn tiny2_srm_mzml0_99_0_b64_s101_mz_binary_payload() {
+    let mzml = parse_b(&MZML_CACHE, PATH);
+    let run = &mzml.run;
+
+    let sl = run.spectrum_list.as_ref().expect("spectrumList parsed");
+    let s0 = &sl.spectra[0];
+    assert_eq!(s0.id, "S101");
+
+    let bdal = s0
+        .binary_data_array_list
+        .as_ref()
+        .expect("binaryDataArrayList parsed");
+    assert_eq!(bdal.binary_data_arrays.len(), 2);
+
+    let bda = &bdal.binary_data_arrays[0]; // m/z array
+    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.encoded_length, Some(22));
+    assert_eq!(bda.numeric_type, Some(NumericType::Float64));
+
+    let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+
+    match &bda.binary {
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(other) => panic!("S101 m/z: expected BinaryData::F64, got {other:?}"),
+        None => panic!("S101 m/z: missing decoded binary payload (bda.binary is None)"),
+    }
+}
+
+#[test]
+fn tiny2_srm_mzml0_99_0_b64_s101_intensity_binary_payload() {
+    let mzml = parse_b(&MZML_CACHE, PATH);
+    let run = &mzml.run;
+
+    let sl = run.spectrum_list.as_ref().expect("spectrumList parsed");
+    let s0 = &sl.spectra[0];
+    assert_eq!(s0.id, "S101");
+
+    let bdal = s0
+        .binary_data_array_list
+        .as_ref()
+        .expect("binaryDataArrayList parsed");
+    assert_eq!(bdal.binary_data_arrays.len(), 2);
+
+    let bda = &bdal.binary_data_arrays[1]; // intensity array
+    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.encoded_length, Some(11));
+    assert_eq!(bda.numeric_type, Some(NumericType::Float32));
+
+    let expected: Vec<f32> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+
+    match &bda.binary {
+        Some(BinaryData::F32(v)) => assert_eq!(v, &expected),
+        Some(other) => panic!("S101 intensity: expected BinaryData::F32, got {other:?}"),
+        None => panic!("S101 intensity: missing decoded binary payload (bda.binary is None)"),
+    }
+}
+
+#[test]
+fn tiny2_srm_mzml0_99_0_b64_s102_mz_binary_payload() {
+    let mzml = parse_b(&MZML_CACHE, PATH);
+    let run = &mzml.run;
+
+    let sl = run.spectrum_list.as_ref().expect("spectrumList parsed");
+    let s1 = &sl.spectra[1];
+    assert_eq!(s1.id, "S102");
+
+    let bdal = s1
+        .binary_data_array_list
+        .as_ref()
+        .expect("binaryDataArrayList parsed");
+    assert_eq!(bdal.binary_data_arrays.len(), 2);
+
+    let bda = &bdal.binary_data_arrays[0]; // m/z array
+    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.encoded_length, Some(5000));
+    assert_eq!(bda.numeric_type, Some(NumericType::Float64));
+
+    let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+
+    match &bda.binary {
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(other) => panic!("S102 m/z: expected BinaryData::F64, got {other:?}"),
+        None => panic!("S102 m/z: missing decoded binary payload (bda.binary is None)"),
+    }
+}
+
+#[test]
+fn tiny2_srm_mzml0_99_0_b64_s102_intensity_binary_payload() {
+    let mzml = parse_b(&MZML_CACHE, PATH);
+    let run = &mzml.run;
+
+    let sl = run.spectrum_list.as_ref().expect("spectrumList parsed");
+    let s1 = &sl.spectra[1];
+    assert_eq!(s1.id, "S102");
+
+    let bdal = s1
+        .binary_data_array_list
+        .as_ref()
+        .expect("binaryDataArrayList parsed");
+    assert_eq!(bdal.binary_data_arrays.len(), 2);
+
+    let bda = &bdal.binary_data_arrays[1]; // intensity array
+    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.encoded_length, Some(2500));
+    assert_eq!(bda.numeric_type, Some(NumericType::Float32));
+
+    let expected: Vec<f32> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+
+    match &bda.binary {
+        Some(BinaryData::F32(v)) => assert_eq!(v, &expected),
+        Some(other) => panic!("S102 intensity: expected BinaryData::F32, got {other:?}"),
+        None => panic!("S102 intensity: missing decoded binary payload (bda.binary is None)"),
+    }
 }

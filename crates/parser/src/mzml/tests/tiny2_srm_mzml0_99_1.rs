@@ -514,7 +514,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s101() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let mz_ba = &bal.binary_data_arrays[0];
-    assert_eq!(mz_ba.array_length, Some(2));
+    assert_eq!(mz_ba.array_length, Some(10));
     assert_eq!(mz_ba.encoded_length, Some(22));
     assert_cv(
         CV_REF_MODE,
@@ -545,7 +545,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s101() {
     );
 
     let int_ba = &bal.binary_data_arrays[1];
-    assert_eq!(int_ba.array_length, Some(2));
+    assert_eq!(int_ba.array_length, Some(10));
     assert_eq!(int_ba.encoded_length, Some(11));
     assert_cv(
         CV_REF_MODE,
@@ -720,7 +720,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let mz_ba = &bal.binary_data_arrays[0];
-    assert_eq!(mz_ba.array_length, Some(43));
+    assert_eq!(mz_ba.array_length, Some(10));
     assert_eq!(mz_ba.encoded_length, Some(5000));
     assert_cv(
         CV_REF_MODE,
@@ -751,7 +751,7 @@ fn tiny1_srm_mzml0_99_1_spectrum_s102() {
     );
 
     let ba1 = &bal.binary_data_arrays[1];
-    assert_eq!(ba1.array_length, Some(43));
+    assert_eq!(ba1.array_length, Some(10));
     assert_eq!(ba1.encoded_length, Some(2500));
     assert_cv(
         CV_REF_MODE,

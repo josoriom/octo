@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 
 use crate::{
-    mzml::structs::MzML,
+    mzml::structs::{BinaryData, MzML, NumericType},
     utilities::test::{
         CvRefMode, assert_cv, assert_cv_absent, assert_software, mzml, spectrum_by_id,
         spectrum_description, spectrum_precursor_list, spectrum_scan_list,
@@ -497,7 +497,7 @@ fn tiny2_srm_mzml0_99_0_spectrum_s101() {
 
     let mz_ba = &bal.binary_data_arrays[0];
 
-    assert_eq!(mz_ba.array_length, Some(2));
+    assert_eq!(mz_ba.array_length, Some(10));
     assert_eq!(mz_ba.encoded_length, Some(22));
     assert_cv(
         CV_REF_MODE,
@@ -528,7 +528,7 @@ fn tiny2_srm_mzml0_99_0_spectrum_s101() {
     );
 
     let int_ba = &bal.binary_data_arrays[1];
-    assert_eq!(int_ba.array_length, Some(2));
+    assert_eq!(int_ba.array_length, Some(10));
     assert_eq!(int_ba.encoded_length, Some(11));
     assert_cv(
         CV_REF_MODE,
@@ -697,7 +697,7 @@ fn tiny2_srm_mzml0_99_0_spectrum_s102() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let mz_ba = &bal.binary_data_arrays[0];
-    assert_eq!(mz_ba.array_length, Some(43));
+    assert_eq!(mz_ba.array_length, Some(10));
     assert_eq!(mz_ba.encoded_length, Some(5000));
     assert_cv(
         CV_REF_MODE,
@@ -728,7 +728,7 @@ fn tiny2_srm_mzml0_99_0_spectrum_s102() {
     );
 
     let ba1 = &bal.binary_data_arrays[1];
-    assert_eq!(ba1.array_length, Some(43));
+    assert_eq!(ba1.array_length, Some(10));
     assert_eq!(ba1.encoded_length, Some(2500));
     assert_cv(
         CV_REF_MODE,
@@ -757,4 +757,96 @@ fn tiny2_srm_mzml0_99_0_spectrum_s102() {
         Some(""),
         None,
     );
+}
+
+#[test]
+fn tiny2_srm_mzml0_99_0_s101_mz_binary_decodes_correctly() {
+    let mzml = mzml(&MZML_CACHE, PATH);
+    let s = spectrum_by_id(mzml, "S101");
+
+    let bal = s
+        .binary_data_array_list
+        .as_ref()
+        .expect("binaryDataArrayList parsed");
+
+    let ba = &bal.binary_data_arrays[0];
+
+    assert_eq!(ba.numeric_type, Some(NumericType::Float64));
+    assert_eq!(ba.array_length, Some(10));
+
+    let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+
+    match ba.binary.as_ref().expect("binary present") {
+        BinaryData::F64(v) => assert_eq!(v, &expected),
+        other => panic!("expected BinaryData::F64, got {:?}", other),
+    }
+}
+
+#[test]
+fn tiny2_srm_mzml0_99_0_s101_intensity_binary_decodes_correctly() {
+    let mzml = mzml(&MZML_CACHE, PATH);
+    let s = spectrum_by_id(mzml, "S101");
+
+    let bal = s
+        .binary_data_array_list
+        .as_ref()
+        .expect("binaryDataArrayList parsed");
+
+    let ba = &bal.binary_data_arrays[1];
+
+    assert_eq!(ba.numeric_type, Some(NumericType::Float32));
+    assert_eq!(ba.array_length, Some(10));
+
+    let expected: Vec<f32> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+
+    match ba.binary.as_ref().expect("binary present") {
+        BinaryData::F32(v) => assert_eq!(v, &expected),
+        other => panic!("expected BinaryData::F32, got {:?}", other),
+    }
+}
+
+#[test]
+fn tiny2_srm_mzml0_99_0_s102_mz_binary_decodes_correctly() {
+    let mzml = mzml(&MZML_CACHE, PATH);
+    let s = spectrum_by_id(mzml, "S102");
+
+    let bal = s
+        .binary_data_array_list
+        .as_ref()
+        .expect("binaryDataArrayList parsed");
+
+    let ba = &bal.binary_data_arrays[0];
+
+    assert_eq!(ba.numeric_type, Some(NumericType::Float64));
+    assert_eq!(ba.array_length, Some(10));
+
+    let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+
+    match ba.binary.as_ref().expect("binary present") {
+        BinaryData::F64(v) => assert_eq!(v, &expected),
+        other => panic!("expected BinaryData::F64, got {:?}", other),
+    }
+}
+
+#[test]
+fn tiny2_srm_mzml0_99_0_s102_intensity_binary_decodes_correctly() {
+    let mzml = mzml(&MZML_CACHE, PATH);
+    let s = spectrum_by_id(mzml, "S102");
+
+    let bal = s
+        .binary_data_array_list
+        .as_ref()
+        .expect("binaryDataArrayList parsed");
+
+    let ba = &bal.binary_data_arrays[1];
+
+    assert_eq!(ba.numeric_type, Some(NumericType::Float32));
+    assert_eq!(ba.array_length, Some(10));
+
+    let expected: Vec<f32> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
+
+    match ba.binary.as_ref().expect("binary present") {
+        BinaryData::F32(v) => assert_eq!(v, &expected),
+        other => panic!("expected BinaryData::F32, got {:?}", other),
+    }
 }

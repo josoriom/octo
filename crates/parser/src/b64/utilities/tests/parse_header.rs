@@ -24,14 +24,17 @@ fn check_header() {
     assert_eq!(header.off_chrom_meta, 824);
     assert_eq!(header.off_global_meta, 1128);
 
-    assert_eq!(header.size_container_spect_x, 67);
+    assert_eq!(header.size_container_spect_x, 96);
     assert_eq!(header.off_container_spect_x, 1952);
-    assert_eq!(header.size_container_spect_y, 71);
-    assert_eq!(header.off_container_spect_y, 2024);
-    assert_eq!(header.size_container_chrom_x, 67);
-    assert_eq!(header.off_container_chrom_x, 2096);
-    assert_eq!(header.size_container_chrom_y, 71);
-    assert_eq!(header.off_container_chrom_y, 2168);
+
+    assert_eq!(header.size_container_spect_y, 90);
+    assert_eq!(header.off_container_spect_y, 2048);
+
+    assert_eq!(header.size_container_chrom_x, 96);
+    assert_eq!(header.off_container_chrom_x, 2144);
+
+    assert_eq!(header.size_container_chrom_y, 90);
+    assert_eq!(header.off_container_chrom_y, 2240);
 
     assert_eq!(header.spectrum_count, 2);
     assert_eq!(header.chrom_count, 2);
