@@ -1,6 +1,5 @@
 use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand};
 use serde::Serialize;
-use serde_json::Value;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -20,7 +19,10 @@ USAGE:
   octo -v | --version
 
   octo convert (--mzml-to-b64 | --mzml-to-b32 | --b64-to-mzml) [--input-path DIR] [--output-path DIR] [--level 0..22]
-  octo show --file-path PATH (--general | --run | --spectrum-list | --chromatogram-list | --spectrum | --chromatogram) [--items SPEC] [--binary]
+  octo cat --file-path PATH
+
+CAT FLAGS:
+  --file-path PATH     input file (.b64/.b32), prints full parsed JSON
 
 CONVERT FLAGS:
   --mzml-to-b64        .mzML -> .b64
@@ -31,25 +33,11 @@ CONVERT FLAGS:
   --level 0..22        default: 12
   --overwrite          default: false (skip if output already exists)
 
-SHOW FLAGS:
-  --file-path PATH     input file (.mzML/.b64/.b32)
-  --general
-  --run
-  --spectrum-list
-  --chromatogram-list
-  --spectrum
-  --chromatogram
-  --items SPEC         only with --spectrum/--chromatogram, default: 0-100 (END is exclusive)
-  --binary             only with --spectrum/--chromatogram, include decoded arrays
-
 EXAMPLES:
   octo convert --mzml-to-b64 --input-path crates/parser/data/mzml --output-path crates/parser/data/b64
   octo convert --b64-to-mzml --input-path crates/parser/data/b64 --output-path crates/parser/data/mzml_out
 
-  octo show --file-path crates/parser/data/mzml/tiny.msdata.mzML0.99.9.mzML --general
-  octo show --file-path crates/parser/data/b64/tiny.msdata.mzML0.99.9.b64 --run
-  octo show --file-path crates/parser/data/b64/tiny.msdata.mzML0.99.9.b64 --spectrum --items 5
-  octo show --file-path crates/parser/data/b64/tiny.msdata.mzML0.99.9.b64 --spectrum --items 0-10 --binary
+  octo cat --file-path crates/parser/data/b64/tiny.msdata.mzML0.99.9.b64
 "#;
 
 #[derive(Parser)]
@@ -75,7 +63,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     Convert(ConvertArgs),
-    Show(ShowArgs),
+    Cat(CatArgs),
 }
 
 #[derive(Args)]
@@ -117,52 +105,9 @@ struct ConvertWhich {
 }
 
 #[derive(Args)]
-#[command(
-    group(
-        ArgGroup::new("items_scope")
-            .args(["spectrum", "chromatogram"])
-            .multiple(false)
-    )
-)]
-struct ShowArgs {
+struct CatArgs {
     #[arg(long = "file-path")]
     file_path: PathBuf,
-
-    #[command(flatten)]
-    which: ShowWhich,
-
-    #[arg(long, default_value_t = false, action = ArgAction::Set, requires = "items_scope")]
-    binary: bool,
-
-    #[arg(long, default_value = "0-100", requires = "items_scope")]
-    items: String,
-}
-
-#[derive(Args)]
-#[group(required = true, multiple = false)]
-struct ShowWhich {
-    #[arg(long)]
-    general: bool,
-
-    #[arg(long)]
-    run: bool,
-
-    #[arg(long = "spectrum-list")]
-    spectrum_list: bool,
-
-    #[arg(long)]
-    spectrum: bool,
-
-    #[arg(long = "chromatogram-list")]
-    chromatogram_list: bool,
-
-    #[arg(long)]
-    chromatogram: bool,
-}
-
-enum ItemsSpec {
-    One(usize),
-    Range { start: usize, end_exclusive: usize },
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -180,45 +125,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.cmd.unwrap() {
         Cmd::Convert(cmd) => convert(cmd).map_err(|e| e.into()),
-        Cmd::Show(cmd) => show(cmd).map_err(|e| e.into()),
+        Cmd::Cat(cmd) => cat(cmd).map_err(|e| e.into()),
     }
 }
 
-fn parse_items_spec(s: &str) -> Result<ItemsSpec, String> {
-    let s = s.trim();
-    if let Some((a, b)) = s.split_once('-') {
-        let start: usize = a.trim().parse().map_err(|_| "bad items start")?;
-        let end_exclusive: usize = b.trim().parse().map_err(|_| "bad items end")?;
-        if end_exclusive < start {
-            return Err("items end must be >= start".to_string());
-        }
-        return Ok(ItemsSpec::Range {
-            start,
-            end_exclusive,
-        });
-    }
-    let idx: usize = s.parse().map_err(|_| "bad items index")?;
-    Ok(ItemsSpec::One(idx))
+fn print_json_full<T: Serialize>(v: &T) -> Result<(), String> {
+    let s = serde_json::to_string_pretty(v).map_err(|e| format!("json failed: {e}"))?;
+    println!("{s}");
+    Ok(())
 }
 
-fn slice_indices(len: usize, spec: &ItemsSpec) -> (usize, usize, bool) {
-    match *spec {
-        ItemsSpec::One(i) => {
-            if i >= len {
-                (len, len, true)
-            } else {
-                (i, i + 1, true)
-            }
-        }
-        ItemsSpec::Range {
-            start,
-            end_exclusive,
-        } => {
-            let s = start.min(len);
-            let e = end_exclusive.min(len);
-            (s, e, false)
-        }
-    }
+fn cat(cmd: CatArgs) -> Result<(), String> {
+    let cwd = std::env::current_dir().map_err(|e| format!("get current dir failed: {e}"))?;
+    let file_path = resolve_user_path(&cwd, &cmd.file_path);
+
+    let mzml = read_mzml_or_b64(&file_path)?;
+    print_json_full(&mzml)
 }
 
 fn workspace_root() -> PathBuf {
@@ -301,286 +223,6 @@ fn collect_files_with_exts(input_root: &Path, exts: &[&str]) -> Result<Vec<PathB
 
     out.sort();
     Ok(out)
-}
-
-fn print_json<T: Serialize>(v: &T) -> Result<(), String> {
-    let mut val = serde_json::to_value(v).map_err(|e| format!("json failed: {e}"))?;
-    prune_json(&mut val);
-    let s = serde_json::to_string_pretty(&val).map_err(|e| format!("json failed: {e}"))?;
-    println!("{s}");
-    Ok(())
-}
-
-#[derive(Serialize)]
-struct GeneralOut<'a> {
-    cv_list: &'a Option<CvList>,
-    file_description: &'a FileDescription,
-    referenceable_param_group_list: &'a Option<ReferenceableParamGroupList>,
-    sample_list: &'a Option<SampleList>,
-    instrument_list: &'a Option<InstrumentList>,
-    software_list: &'a Option<SoftwareList>,
-    data_processing_list: &'a Option<DataProcessingList>,
-    scan_settings_list: &'a Option<ScanSettingsList>,
-}
-
-#[derive(Serialize)]
-struct RunOut<'a> {
-    id: &'a str,
-    start_time_stamp: &'a Option<String>,
-    default_instrument_configuration_ref: &'a Option<String>,
-    default_source_file_ref: &'a Option<String>,
-    sample_ref: &'a Option<String>,
-    referenceable_param_group_refs: &'a Vec<ReferenceableParamGroupRef>,
-    cv_params: &'a Vec<CvParam>,
-    user_params: &'a Vec<UserParam>,
-    source_file_ref_list: &'a Option<SourceFileRefList>,
-}
-
-#[derive(Serialize)]
-struct SpectrumListOut<'a> {
-    count: &'a Option<usize>,
-    default_data_processing_ref: &'a Option<String>,
-}
-
-#[derive(Serialize)]
-struct ChromatogramListOut<'a> {
-    count: &'a Option<usize>,
-    default_data_processing_ref: &'a Option<String>,
-}
-
-#[derive(Serialize)]
-struct BinaryDataArrayOut<'a> {
-    array_length: Option<usize>,
-    encoded_length: Option<usize>,
-    data_processing_ref: &'a Option<String>,
-    referenceable_param_group_refs: &'a Vec<ReferenceableParamGroupRef>,
-    cv_params: &'a Vec<CvParam>,
-    user_params: &'a Vec<UserParam>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    binary: Option<&'a BinaryData>,
-}
-
-#[derive(Serialize)]
-struct BinaryDataArrayListOut<'a> {
-    count: &'a Option<usize>,
-    binary_data_arrays: Vec<BinaryDataArrayOut<'a>>,
-}
-
-fn bda_out<'a>(ba: &'a BinaryDataArray, binary: bool) -> BinaryDataArrayOut<'a> {
-    let binary = if binary { ba.binary.as_ref() } else { None };
-
-    BinaryDataArrayOut {
-        array_length: ba.array_length,
-        encoded_length: ba.encoded_length,
-        data_processing_ref: &ba.data_processing_ref,
-        referenceable_param_group_refs: &ba.referenceable_param_group_refs,
-        cv_params: &ba.cv_params,
-        user_params: &ba.user_params,
-        binary,
-    }
-}
-
-fn bda_list_out<'a>(
-    list: Option<&'a BinaryDataArrayList>,
-    binary: bool,
-) -> Option<BinaryDataArrayListOut<'a>> {
-    let list = list?;
-    let mut out = Vec::with_capacity(list.binary_data_arrays.len());
-    for ba in &list.binary_data_arrays {
-        out.push(bda_out(ba, binary));
-    }
-    Some(BinaryDataArrayListOut {
-        count: &list.count,
-        binary_data_arrays: out,
-    })
-}
-
-#[derive(Serialize)]
-struct SpectrumOut<'a> {
-    id: &'a str,
-    index: &'a Option<u32>,
-    scan_number: &'a Option<u32>,
-    default_array_length: &'a Option<usize>,
-    native_id: &'a Option<String>,
-    data_processing_ref: &'a Option<String>,
-    source_file_ref: &'a Option<String>,
-    spot_id: &'a Option<String>,
-    ms_level: &'a Option<u32>,
-
-    referenceable_param_group_refs: &'a Vec<ReferenceableParamGroupRef>,
-    cv_params: &'a Vec<CvParam>,
-    user_params: &'a Vec<UserParam>,
-
-    spectrum_description: &'a Option<SpectrumDescription>,
-    scan_list: &'a Option<ScanList>,
-    precursor_list: &'a Option<PrecursorList>,
-    product_list: &'a Option<ProductList>,
-
-    binary_data_array_list: Option<BinaryDataArrayListOut<'a>>,
-}
-
-fn spectrum_out<'a>(s: &'a Spectrum, binary: bool) -> SpectrumOut<'a> {
-    SpectrumOut {
-        id: s.id.as_str(),
-        index: &s.index,
-        scan_number: &s.scan_number,
-        default_array_length: &s.default_array_length,
-        native_id: &s.native_id,
-        data_processing_ref: &s.data_processing_ref,
-        source_file_ref: &s.source_file_ref,
-        spot_id: &s.spot_id,
-        ms_level: &s.ms_level,
-        referenceable_param_group_refs: &s.referenceable_param_group_refs,
-        cv_params: &s.cv_params,
-        user_params: &s.user_params,
-        spectrum_description: &s.spectrum_description,
-        scan_list: &s.scan_list,
-        precursor_list: &s.precursor_list,
-        product_list: &s.product_list,
-        binary_data_array_list: bda_list_out(s.binary_data_array_list.as_ref(), binary),
-    }
-}
-
-#[derive(Serialize)]
-struct ChromatogramOut<'a> {
-    id: &'a str,
-    native_id: &'a Option<String>,
-    index: &'a Option<u32>,
-    default_array_length: &'a Option<usize>,
-    data_processing_ref: &'a Option<String>,
-
-    referenceable_param_group_refs: &'a Vec<ReferenceableParamGroupRef>,
-    cv_params: &'a Vec<CvParam>,
-    user_params: &'a Vec<UserParam>,
-
-    precursor: &'a Option<Precursor>,
-    product: &'a Option<Product>,
-
-    binary_data_array_list: Option<BinaryDataArrayListOut<'a>>,
-}
-
-fn chromatogram_out<'a>(c: &'a Chromatogram, binary: bool) -> ChromatogramOut<'a> {
-    ChromatogramOut {
-        id: c.id.as_str(),
-        native_id: &c.native_id,
-        index: &c.index,
-        default_array_length: &c.default_array_length,
-        data_processing_ref: &c.data_processing_ref,
-        referenceable_param_group_refs: &c.referenceable_param_group_refs,
-        cv_params: &c.cv_params,
-        user_params: &c.user_params,
-        precursor: &c.precursor,
-        product: &c.product,
-        binary_data_array_list: bda_list_out(c.binary_data_array_list.as_ref(), binary),
-    }
-}
-
-fn show(cmd: ShowArgs) -> Result<(), String> {
-    let cwd = std::env::current_dir().map_err(|e| format!("get current dir failed: {e}"))?;
-    let file_path = resolve_user_path(&cwd, &cmd.file_path);
-
-    let mzml = read_mzml_or_b64(&file_path)?;
-
-    if cmd.which.general {
-        let out = GeneralOut {
-            cv_list: &mzml.cv_list,
-            file_description: &mzml.file_description,
-            referenceable_param_group_list: &mzml.referenceable_param_group_list,
-            sample_list: &mzml.sample_list,
-            instrument_list: &mzml.instrument_list,
-            software_list: &mzml.software_list,
-            data_processing_list: &mzml.data_processing_list,
-            scan_settings_list: &mzml.scan_settings_list,
-        };
-        return print_json(&out);
-    }
-
-    if cmd.which.run {
-        let r: &Run = &mzml.run;
-        let out = RunOut {
-            id: r.id.as_str(),
-            start_time_stamp: &r.start_time_stamp,
-            default_instrument_configuration_ref: &r.default_instrument_configuration_ref,
-            default_source_file_ref: &r.default_source_file_ref,
-            sample_ref: &r.sample_ref,
-            referenceable_param_group_refs: &r.referenceable_param_group_refs,
-            cv_params: &r.cv_params,
-            user_params: &r.user_params,
-            source_file_ref_list: &r.source_file_ref_list,
-        };
-        return print_json(&out);
-    }
-
-    if cmd.which.spectrum_list {
-        let out = mzml
-            .run
-            .spectrum_list
-            .as_ref()
-            .map(|sl: &SpectrumList| SpectrumListOut {
-                count: &sl.count,
-                default_data_processing_ref: &sl.default_data_processing_ref,
-            });
-        return print_json(&out);
-    }
-
-    if cmd.which.chromatogram_list {
-        let out = mzml
-            .run
-            .chromatogram_list
-            .as_ref()
-            .map(|cl: &ChromatogramList| ChromatogramListOut {
-                count: &cl.count,
-                default_data_processing_ref: &cl.default_data_processing_ref,
-            });
-        return print_json(&out);
-    }
-
-    let items_spec = parse_items_spec(&cmd.items)?;
-
-    if cmd.which.spectrum {
-        let spectra: &[Spectrum] = mzml
-            .run
-            .spectrum_list
-            .as_ref()
-            .map(|sl| sl.spectra.as_slice())
-            .unwrap_or(&[]);
-        let (s, e, single) = slice_indices(spectra.len(), &items_spec);
-        if s == e {
-            return Err("items out of bounds".to_string());
-        }
-        if single {
-            return print_json(&spectrum_out(&spectra[s], cmd.binary));
-        }
-        let mut out = Vec::with_capacity(e - s);
-        for i in s..e {
-            out.push(spectrum_out(&spectra[i], cmd.binary));
-        }
-        return print_json(&out);
-    }
-
-    if cmd.which.chromatogram {
-        let chromatograms: &[Chromatogram] = mzml
-            .run
-            .chromatogram_list
-            .as_ref()
-            .map(|cl| cl.chromatograms.as_slice())
-            .unwrap_or(&[]);
-        let (s, e, single) = slice_indices(chromatograms.len(), &items_spec);
-        if s == e {
-            return Err("items out of bounds".to_string());
-        }
-        if single {
-            return print_json(&chromatogram_out(&chromatograms[s], cmd.binary));
-        }
-        let mut out = Vec::with_capacity(e - s);
-        for i in s..e {
-            out.push(chromatogram_out(&chromatograms[i], cmd.binary));
-        }
-        return print_json(&out);
-    }
-
-    Err("no show mode selected".to_string())
 }
 
 fn convert(cmd: ConvertArgs) -> Result<(), String> {
@@ -836,32 +478,6 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
     }
 
     Err("no convert mode selected".to_string())
-}
-
-fn prune_json(v: &mut Value) -> bool {
-    match v {
-        Value::Null => false,
-
-        Value::String(s) => !s.is_empty(),
-
-        Value::Array(xs) => {
-            xs.retain_mut(|x| prune_json(x));
-            !xs.is_empty()
-        }
-
-        Value::Object(m) => {
-            let keys: Vec<String> = m.keys().cloned().collect();
-            for k in keys {
-                let keep = m.get_mut(&k).map(prune_json).unwrap_or(false);
-                if !keep {
-                    m.remove(&k);
-                }
-            }
-            !m.is_empty()
-        }
-
-        Value::Bool(_) | Value::Number(_) => true,
-    }
 }
 
 fn read_mzml_or_b64_from_bytes(file_path: &Path, bytes: &[u8]) -> Result<MzML, String> {
