@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{
     BinaryDataArray, BinaryDataArrayList, CvParam, NumericType, UserParam,
     b64::utilities::common::{is_cv_prefix, unit_cv_ref, value_to_opt_string},
@@ -16,7 +14,7 @@ use crate::{
 
 /// <binaryDataArrayList>
 #[inline]
-pub fn parse_binary_data_array_list(metadata: &[Metadatum]) -> Option<BinaryDataArrayList> {
+pub fn parse_binary_data_array_list(metadata: &[&Metadatum]) -> Option<BinaryDataArrayList> {
     let list_id = metadata
         .iter()
         .find(|m| m.tag_id == TagId::BinaryDataArrayList)
@@ -29,15 +27,21 @@ pub fn parse_binary_data_array_list(metadata: &[Metadatum]) -> Option<BinaryData
         })?;
 
     let mut count: Option<usize> = None;
+    let mut parent_default_len: Option<usize> = None;
 
-    let mut index: HashMap<u32, usize> = HashMap::with_capacity(metadata.len() / 8 + 1);
     let mut tmp: Vec<(u32, BinaryDataArray)> = Vec::new();
 
     for m in metadata {
+        if parent_default_len.is_none()
+            && m.accession.as_deref().and_then(b000_tail) == Some(ACC_ATTR_DEFAULT_ARRAY_LENGTH)
+        {
+            parent_default_len = as_u32(&m.value).map(|v| v as usize);
+        }
+
         if count.is_none()
             && m.tag_id == TagId::BinaryDataArrayList
             && m.owner_id == list_id
-            && b000_tail(m.accession.as_deref()) == Some(ACC_ATTR_COUNT)
+            && m.accession.as_deref().and_then(b000_tail) == Some(ACC_ATTR_COUNT)
         {
             count = as_u32(&m.value).map(|v| v as usize);
             continue;
@@ -48,13 +52,11 @@ pub fn parse_binary_data_array_list(metadata: &[Metadatum]) -> Option<BinaryData
         }
 
         let id = m.owner_id;
-        let at = match index.get(&id).copied() {
+        let at = match tmp.iter().position(|(x, _)| *x == id) {
             Some(i) => i,
             None => {
-                let i = tmp.len();
                 tmp.push((id, new_binary_data_array()));
-                index.insert(id, i);
-                i
+                tmp.len() - 1
             }
         };
 
@@ -73,35 +75,18 @@ pub fn parse_binary_data_array_list(metadata: &[Metadatum]) -> Option<BinaryData
     let mut binary_data_arrays: Vec<BinaryDataArray> =
         tmp.into_iter().map(|(_, bda)| bda).collect();
 
-    inherit_array_length_from_parent(metadata, &mut binary_data_arrays);
+    if let Some(len) = parent_default_len {
+        for bda in &mut binary_data_arrays {
+            if bda.array_length.is_none() {
+                bda.array_length = Some(len);
+            }
+        }
+    }
 
     Some(BinaryDataArrayList {
         count: count.or(Some(binary_data_arrays.len())),
         binary_data_arrays,
     })
-}
-
-/// <binaryDataArrayList>
-#[inline]
-fn inherit_array_length_from_parent(metadata: &[Metadatum], bdas: &mut [BinaryDataArray]) {
-    let parent_default = metadata
-        .iter()
-        .find_map(|m| match b000_tail(m.accession.as_deref()) {
-            Some(tail) if tail == ACC_ATTR_DEFAULT_ARRAY_LENGTH => {
-                as_u32(&m.value).map(|v| v as usize)
-            }
-            _ => None,
-        });
-
-    let Some(len) = parent_default else {
-        return;
-    };
-
-    for bda in bdas {
-        if bda.array_length.is_none() {
-            bda.array_length = Some(len);
-        }
-    }
 }
 
 /// <binaryDataArray>
@@ -117,18 +102,6 @@ fn new_binary_data_array() -> BinaryDataArray {
         numeric_type: None,
         binary: None,
     }
-}
-
-/// <binaryDataArray>
-#[inline]
-fn parse_binary_data_array(metadata: &[&Metadatum]) -> BinaryDataArray {
-    let mut out = new_binary_data_array();
-    out.cv_params
-        .reserve(metadata.len().saturating_sub(out.cv_params.capacity()));
-    for m in metadata {
-        apply_binary_data_array_metadatum(&mut out, m);
-    }
-    out
 }
 
 #[inline]
@@ -154,48 +127,53 @@ fn apply_binary_data_array_metadatum(out: &mut BinaryDataArray, m: &Metadatum) {
     }
 
     let value = value_to_opt_string(&m.value);
-    let unit_accession = m.unit_accession.clone();
-    let unit_cv_ref = unit_cv_ref(&unit_accession);
+    let unit_accession_str = m.unit_accession.as_deref();
+    let unit_cv_ref = unit_cv_ref(unit_accession_str);
 
     if is_cv_prefix(prefix) {
         if prefix == "MS" {
-            if let Ok(tail_u32) = tail.parse::<u32>() {
-                let new_ty = match tail_u32 {
-                    1000519 => Some(NumericType::Int32),
-                    1000521 => Some(NumericType::Float32),
-                    1000522 => Some(NumericType::Int64),
-                    1000523 => Some(NumericType::Float64),
-                    _ => None,
-                };
+            let new_ty = match tail {
+                "1000519" => Some(NumericType::Int32),
+                "1000521" => Some(NumericType::Float32),
+                "1000522" => Some(NumericType::Int64),
+                "1000523" => Some(NumericType::Float64),
+                _ => None,
+            };
 
-                if let Some(nt) = new_ty {
-                    out.numeric_type = match out.numeric_type {
-                        None => Some(nt),
-                        Some(cur) if cur == nt => Some(cur),
-                        Some(_) => None,
-                    };
-                }
+            if let Some(nt) = new_ty {
+                out.numeric_type = match out.numeric_type {
+                    None => Some(nt),
+                    Some(cur) if cur == nt => Some(cur),
+                    Some(_) => None,
+                };
             }
         }
 
-        let unit_name = unit_accession
-            .as_deref()
-            .and_then(|ua| cv_table::get(ua).and_then(|v| v.as_str()))
-            .map(|s| s.to_string());
-
-        out.cv_params.push(CvParam {
-            cv_ref: Some(prefix.to_string()),
-            accession: Some(acc.to_string()),
-            name: cv_table::get(acc)
+        let unit_name = if let Some(ua) = unit_accession_str {
+            cv_table::get(ua)
                 .and_then(|v| v.as_str())
-                .unwrap_or(acc)
-                .to_string(),
+                .map(str::to_owned)
+        } else {
+            None
+        };
+
+        let name = cv_table::get(acc)
+            .and_then(|v| v.as_str())
+            .unwrap_or(acc)
+            .to_owned();
+
+        let unit_accession = m.unit_accession.clone();
+        out.cv_params.push(CvParam {
+            cv_ref: Some(prefix.to_owned()),
+            accession: Some(acc.to_owned()),
+            name,
             value,
             unit_cv_ref,
             unit_name,
             unit_accession,
         });
     } else {
+        let unit_accession = m.unit_accession.clone();
         out.user_params.push(UserParam {
             name: acc.to_string(),
             r#type: None,
@@ -208,12 +186,8 @@ fn apply_binary_data_array_metadatum(out: &mut BinaryDataArray, m: &Metadatum) {
 }
 
 #[inline]
-fn b000_tail(acc: Option<&str>) -> Option<u32> {
-    let acc = acc?;
-    let (prefix, tail) = acc.split_once(':')?;
-    if prefix != CV_REF_ATTR {
-        return None;
-    }
+fn b000_tail(acc: &str) -> Option<u32> {
+    let tail = acc.strip_prefix("B000:")?;
     tail.parse::<u32>().ok()
 }
 

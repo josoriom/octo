@@ -11,7 +11,6 @@ use crate::b64::{
         parse_global_metadata::parse_global_metadata, parse_header,
     },
 };
-use crate::mzml::schema::schema;
 
 const PATH: &str = "data/b64/test.b64";
 const GLOBAL_META_COMPRESSION_BIT: u8 = 6;
@@ -79,9 +78,9 @@ fn parse_file_description_matches_test_mzml() {
     let meta = parse_global_metadata_from_test_file();
 
     let child_index = ChildIndex::new(&meta);
-    let schema = schema();
+    let meta_ref: Vec<&Metadatum> = meta.iter().collect();
 
-    let fd = parse_file_description(&schema, &meta, &child_index)
+    let fd = parse_file_description(&meta_ref, &child_index)
         .expect("parse_file_description returned None");
 
     assert_eq!(fd.source_file_list.count, Some(1));

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -7,7 +8,17 @@ use crate::b64::decode::{Metadatum, MetadatumValue};
 use crate::mzml::attr_meta::{CV_REF_ATTR, attr_key_from_tail};
 use crate::mzml::schema::{SchemaNode, TagId, schema};
 
-static XMLKEY_TO_TAIL: std::sync::OnceLock<HashMap<&'static str, u32>> = std::sync::OnceLock::new();
+static XMLKEY_TO_TAIL: OnceLock<HashMap<&'static str, u32>> = OnceLock::new();
+static TAG_ATTR_SPECS: OnceLock<Mutex<HashMap<TagId, &'static [FieldSpec]>>> = OnceLock::new();
+
+#[derive(Clone)]
+struct FieldSpec {
+    tail: u32,
+    field_key: String,
+    camel: String,
+    id_variant: Option<String>,
+    uri_variant: Option<String>,
+}
 
 pub fn assign_attributes<T>(
     expected: &T,
@@ -104,93 +115,127 @@ where
     }
 
     #[inline]
-    fn get_expected_field<'a>(
+    fn get_expected_field_from_spec<'a>(
         expected_obj: &'a serde_json::Map<String, Value>,
-        field_key: &str,
+        spec: &FieldSpec,
     ) -> Option<&'a Value> {
-        if let Some(v) = expected_obj.get(field_key) {
+        if let Some(v) = expected_obj.get(&spec.field_key) {
             return Some(v);
         }
-
-        let (camel, id_var, uri_var) = snake_to_camel_variants(field_key);
-
-        if !camel.is_empty() {
-            if let Some(v) = expected_obj.get(&camel) {
+        if !spec.camel.is_empty() {
+            if let Some(v) = expected_obj.get(&spec.camel) {
                 return Some(v);
             }
         }
-        if let Some(k) = id_var {
-            if let Some(v) = expected_obj.get(&k) {
+        if let Some(k) = spec.id_variant.as_ref() {
+            if let Some(v) = expected_obj.get(k) {
                 return Some(v);
             }
         }
-        if let Some(k) = uri_var {
-            if let Some(v) = expected_obj.get(&k) {
+        if let Some(k) = spec.uri_variant.as_ref() {
+            if let Some(v) = expected_obj.get(k) {
                 return Some(v);
             }
         }
-
         None
     }
 
-    let tree = schema();
-    let node = tree
-        .roots
-        .values()
-        .find_map(|root| find_node(root, tag_id))
-        .unwrap_or_else(|| panic!("schema missing node for tag_id={tag_id:?}"));
-
-    let expected_json = serde_json::to_value(expected).expect("to_value(expected)");
-    let expected_obj = expected_json
-        .as_object()
-        .unwrap_or_else(|| panic!("expected must serialize to JSON object"));
-
-    let xmlkey_to_tail = XMLKEY_TO_TAIL.get_or_init(|| {
-        let mut m = HashMap::new();
+    #[inline]
+    fn build_xmlkey_to_tail() -> HashMap<&'static str, u32> {
+        let mut m: HashMap<&'static str, u32> = HashMap::with_capacity(4096);
         for tail in 9_900_000u32..=9_920_000u32 {
             if let Some(k) = attr_key_from_tail(tail) {
                 m.insert(k, tail);
             }
         }
         m
-    });
+    }
 
-    let mut items: Vec<(u32, MetadatumValue)> = Vec::with_capacity(node.attributes.len());
+    #[inline]
+    fn build_specs_for_tag(
+        tag_id: TagId,
+        xmlkey_to_tail: &HashMap<&'static str, u32>,
+    ) -> Vec<FieldSpec> {
+        let tree = schema();
+        let node = tree
+            .roots
+            .values()
+            .find_map(|root| find_node(root, tag_id))
+            .unwrap_or_else(|| panic!("schema missing node for tag_id={tag_id:?}"));
 
-    for (field_key, xml_keys) in node.attributes.iter() {
-        let Some(v) = get_expected_field(expected_obj, field_key.as_str()) else {
+        let mut specs: Vec<FieldSpec> = Vec::with_capacity(node.attributes.len());
+
+        for (field_key, xml_keys) in node.attributes.iter() {
+            let xml_key = xml_keys
+                .first()
+                .unwrap_or_else(|| panic!("schema attribute {field_key:?} has empty xml key list"));
+
+            let tail = *xmlkey_to_tail.get(xml_key.as_str()).unwrap_or_else(|| {
+                panic!(
+                    "no B000 tail mapping for xml attribute key {xml_key:?} \
+                     (field {field_key:?}, tag {tag_id:?})"
+                )
+            });
+
+            let (camel, id_variant, uri_variant) = snake_to_camel_variants(field_key.as_str());
+
+            specs.push(FieldSpec {
+                tail,
+                field_key: field_key.clone(),
+                camel,
+                id_variant,
+                uri_variant,
+            });
+        }
+
+        specs.sort_by_key(|s| s.tail);
+        specs
+    }
+
+    let expected_json = serde_json::to_value(expected).expect("to_value(expected)");
+    let expected_obj = expected_json
+        .as_object()
+        .unwrap_or_else(|| panic!("expected must serialize to JSON object"));
+
+    let xmlkey_to_tail = XMLKEY_TO_TAIL.get_or_init(build_xmlkey_to_tail);
+
+    let specs_map = TAG_ATTR_SPECS.get_or_init(|| Mutex::new(HashMap::new()));
+
+    let specs: &'static [FieldSpec] = {
+        let mut guard = specs_map.lock().expect("TAG_ATTR_SPECS lock");
+        if let Some(&specs) = guard.get(&tag_id) {
+            specs
+        } else {
+            let specs_vec = build_specs_for_tag(tag_id, xmlkey_to_tail);
+            let leaked: &'static [FieldSpec] = Box::leak(specs_vec.into_boxed_slice());
+            guard.insert(tag_id, leaked);
+            leaked
+        }
+    };
+
+    let mut out: Vec<Metadatum> = Vec::with_capacity(specs.len());
+    let mut item_index: u32 = 0;
+
+    for spec in specs {
+        let Some(v) = get_expected_field_from_spec(expected_obj, spec) else {
             continue;
         };
         let Some(value) = to_metadatum_value(v) else {
             continue;
         };
 
-        let xml_key = xml_keys
-            .first()
-            .unwrap_or_else(|| panic!("schema attribute {field_key:?} has empty xml key list"));
+        let mut accession = String::with_capacity(CV_REF_ATTR.len() + 1 + 7);
+        accession.push_str(CV_REF_ATTR);
+        accession.push(':');
+        use core::fmt::Write;
+        write!(&mut accession, "{:07}", spec.tail).expect("write accession tail");
 
-        let tail = *xmlkey_to_tail.get(xml_key.as_str()).unwrap_or_else(|| {
-            panic!(
-                "no B000 tail mapping for xml attribute key {xml_key:?} \
-                 (field {field_key:?}, tag {tag_id:?})"
-            )
-        });
-
-        items.push((tail, value));
-    }
-
-    items.sort_by_key(|(tail, _)| *tail);
-
-    let mut out = Vec::with_capacity(items.len());
-    let mut item_index: u32 = 0;
-
-    for (tail, value) in items {
         out.push(Metadatum {
             item_index,
             owner_id,
             parent_index,
             tag_id,
-            accession: Some(format!("{CV_REF_ATTR}:{tail:07}")),
+            accession: Some(accession),
             unit_accession: None,
             value,
         });

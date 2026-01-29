@@ -3,77 +3,52 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     ScanList, ScanWindow, ScanWindowList,
     b64::utilities::{
-        common::{ChildIndex, child_node, find_node_by_tag, ordered_unique_owner_ids},
+        common::{
+            ChildIndex, OwnerRows, ParseCtx, child_params_for_parent, ordered_unique_owner_ids,
+            rows_for_owner, unique_ids,
+        },
         parse_cv_and_user_params,
     },
     decode::Metadatum,
-    mzml::{
-        schema::{SchemaTree as Schema, TagId},
-        structs::Scan,
-    },
+    mzml::{schema::TagId, structs::Scan},
 };
 
+/// <scanList>
 #[inline]
-pub fn parse_scan_list(
-    schema: &Schema,
-    metadata: &[Metadatum],
-    child_index: &ChildIndex,
-) -> Option<ScanList> {
-    let list_node = find_node_by_tag(schema, TagId::ScanList)?;
-    let scan_node = child_node(Some(list_node), TagId::Scan)?;
+pub fn parse_scan_list(metadata: &[&Metadatum], child_index: &ChildIndex) -> Option<ScanList> {
+    let mut owner_rows: OwnerRows<'_> = HashMap::with_capacity(metadata.len());
+    let mut scan_list_id: Option<u32> = None;
 
-    let mut allowed_scan_list: HashSet<&str> = child_node(Some(list_node), TagId::CvParam)
-        .map(|n| n.accessions.iter().map(|s| s.as_str()).collect())
-        .unwrap_or_default();
-
-    let allowed_scan: HashSet<&str> = child_node(Some(scan_node), TagId::CvParam)
-        .map(|n| n.accessions.iter().map(|s| s.as_str()).collect())
-        .unwrap_or_default();
-
-    let scan_window_node = child_node(Some(scan_node), TagId::ScanWindowList)
-        .and_then(|n| child_node(Some(n), TagId::ScanWindow));
-
-    let allowed_scan_window: HashSet<&str> = scan_window_node
-        .and_then(|n| child_node(Some(n), TagId::CvParam))
-        .map(|n| n.accessions.iter().map(|s| s.as_str()).collect())
-        .unwrap_or_default();
-
-    let mut owner_rows: HashMap<u32, Vec<&Metadatum>> = HashMap::new();
-    for m in metadata {
+    for &m in metadata {
         owner_rows.entry(m.owner_id).or_default().push(m);
-    }
-
-    let scan_list_id = metadata
-        .iter()
-        .find(|m| m.tag_id == TagId::ScanList)
-        .map(|m| m.owner_id)?;
-
-    let scan_list_rows = rows_for_owner(&owner_rows, scan_list_id);
-
-    if allowed_scan_list.is_empty() {
-        for m in scan_list_rows {
-            if let Some(acc) = m.accession.as_deref() {
-                if !acc.starts_with("B000:") {
-                    allowed_scan_list.insert(acc);
-                }
-            }
+        if scan_list_id.is_none() && m.tag_id == TagId::ScanList {
+            scan_list_id = Some(m.owner_id);
         }
     }
 
-    let mut scan_list_params_meta: Vec<&Metadatum> = Vec::new();
-    scan_list_params_meta.extend(scan_list_rows.iter().copied());
-    scan_list_params_meta.extend(child_params_for_parent(
-        &owner_rows,
+    let scan_list_id = scan_list_id?;
+
+    let ctx = ParseCtx {
+        metadata,
         child_index,
+        owner_rows: &owner_rows,
+    };
+
+    let scan_list_rows = rows_for_owner(ctx.owner_rows, scan_list_id);
+
+    let mut scan_list_params_meta: Vec<&Metadatum> = Vec::with_capacity(scan_list_rows.len() + 8);
+    scan_list_params_meta.extend_from_slice(scan_list_rows);
+    scan_list_params_meta.extend(child_params_for_parent(
+        ctx.owner_rows,
+        ctx.child_index,
         scan_list_id,
     ));
 
-    let (cv_params, user_params) =
-        parse_cv_and_user_params(&allowed_scan_list, &scan_list_params_meta);
+    let (cv_params, user_params) = parse_cv_and_user_params(&scan_list_params_meta);
 
-    let mut scan_ids: Vec<u32> = unique_ids(child_index.ids(scan_list_id, TagId::Scan));
+    let mut scan_ids: Vec<u32> = unique_ids(ctx.child_index.ids(scan_list_id, TagId::Scan));
     if scan_ids.is_empty() {
-        scan_ids = ordered_unique_owner_ids(metadata, TagId::Scan);
+        scan_ids = ordered_unique_owner_ids(ctx.metadata, TagId::Scan);
     }
     if scan_ids.is_empty() {
         return None;
@@ -84,26 +59,24 @@ pub fn parse_scan_list(
     } else {
         None
     };
-
-    let all_scan_window_ids = ordered_unique_owner_ids(metadata, TagId::ScanWindow);
+    let all_scan_window_ids = ordered_unique_owner_ids(ctx.metadata, TagId::ScanWindow);
 
     let mut scans = Vec::with_capacity(scan_ids.len());
     for scan_id in scan_ids {
-        let scan_rows = rows_for_owner(&owner_rows, scan_id);
+        let scan_rows = rows_for_owner(ctx.owner_rows, scan_id);
         let scan_parent = scan_rows.first().map(|m| m.parent_index).unwrap_or(0);
 
         let scan_window_ids = scan_window_ids_for_scan(
-            child_index,
+            ctx.child_index,
             scan_id,
             scan_parent,
             single_scan_id,
             &all_scan_window_ids,
         );
 
-        let scan_window_list =
-            parse_scan_window_list(&allowed_scan_window, &owner_rows, &scan_window_ids);
+        let scan_window_list = parse_scan_window_list(ctx.owner_rows, &scan_window_ids);
 
-        scans.push(parse_scan(&allowed_scan, scan_rows, scan_window_list));
+        scans.push(parse_scan(scan_rows, scan_window_list));
     }
 
     Some(ScanList {
@@ -116,12 +89,8 @@ pub fn parse_scan_list(
 
 /// <scan>
 #[inline]
-fn parse_scan(
-    allowed_scan: &HashSet<&str>,
-    scan_rows: &[&Metadatum],
-    scan_window_list: Option<ScanWindowList>,
-) -> Scan {
-    let (cv_params, user_params) = parse_cv_and_user_params(allowed_scan, scan_rows);
+fn parse_scan(scan_rows: &[&Metadatum], scan_window_list: Option<ScanWindowList>) -> Scan {
+    let (cv_params, user_params) = parse_cv_and_user_params(scan_rows);
 
     Scan {
         instrument_configuration_ref: None,
@@ -138,7 +107,6 @@ fn parse_scan(
 /// <scanWindowList>
 #[inline]
 fn parse_scan_window_list(
-    allowed_scan_window: &HashSet<&str>,
     owner_rows: &HashMap<u32, Vec<&Metadatum>>,
     scan_window_ids: &[u32],
 ) -> Option<ScanWindowList> {
@@ -149,7 +117,7 @@ fn parse_scan_window_list(
     let mut scan_windows = Vec::with_capacity(scan_window_ids.len());
     for &sw_id in scan_window_ids {
         let sw_rows = rows_for_owner(owner_rows, sw_id);
-        scan_windows.push(parse_scan_window(allowed_scan_window, sw_rows));
+        scan_windows.push(parse_scan_window(sw_rows));
     }
 
     Some(ScanWindowList {
@@ -160,53 +128,14 @@ fn parse_scan_window_list(
 
 /// <scanWindow>
 #[inline]
-fn parse_scan_window(
-    allowed_scan_window: &HashSet<&str>,
-    scan_window_rows: &[&Metadatum],
-) -> ScanWindow {
-    let (cv_params, user_params) = parse_cv_and_user_params(allowed_scan_window, scan_window_rows);
+fn parse_scan_window(scan_window_rows: &[&Metadatum]) -> ScanWindow {
+    let (cv_params, user_params) = parse_cv_and_user_params(scan_window_rows);
 
     ScanWindow {
         cv_params,
         user_params,
         ..Default::default()
     }
-}
-
-#[inline]
-fn rows_for_owner<'a>(
-    owner_rows: &'a HashMap<u32, Vec<&'a Metadatum>>,
-    owner_id: u32,
-) -> &'a [&'a Metadatum] {
-    owner_rows
-        .get(&owner_id)
-        .map(|v| v.as_slice())
-        .unwrap_or(&[])
-}
-
-#[inline]
-fn child_params_for_parent<'a>(
-    owner_rows: &HashMap<u32, Vec<&'a Metadatum>>,
-    child_index: &ChildIndex,
-    parent_id: u32,
-) -> Vec<&'a Metadatum> {
-    let cv_ids = child_index.ids(parent_id, TagId::CvParam);
-    let up_ids = child_index.ids(parent_id, TagId::UserParam);
-
-    let mut out = Vec::with_capacity(cv_ids.len() + up_ids.len());
-
-    for &id in cv_ids {
-        if let Some(rows) = owner_rows.get(&id) {
-            out.extend(rows.iter().copied());
-        }
-    }
-    for &id in up_ids {
-        if let Some(rows) = owner_rows.get(&id) {
-            out.extend(rows.iter().copied());
-        }
-    }
-
-    out
 }
 
 #[inline]
@@ -238,17 +167,5 @@ fn scan_window_ids_for_scan(
 
     let mut seen = HashSet::with_capacity(out.len());
     out.retain(|id| seen.insert(*id));
-    out
-}
-
-#[inline]
-fn unique_ids(ids: &[u32]) -> Vec<u32> {
-    let mut out = Vec::with_capacity(ids.len());
-    let mut seen = HashSet::with_capacity(ids.len());
-    for &id in ids {
-        if seen.insert(id) {
-            out.push(id);
-        }
-    }
     out
 }

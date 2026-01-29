@@ -3,7 +3,6 @@ use std::{fs, path::PathBuf};
 use crate::b64::decode::Metadatum;
 use crate::b64::utilities::common::ChildIndex;
 use crate::b64::utilities::{parse_header, parse_metadata, parse_spectrum_list};
-use crate::mzml::schema::{TagId, schema};
 use crate::{CvParam, SpectrumList};
 
 const PATH: &str = "data/b64/test.b64";
@@ -86,9 +85,10 @@ fn parse_spectrum_list_from_test_file() -> SpectrumList {
     );
 
     let child_index = ChildIndex::new(&meta);
+    let meta_ref: Vec<&Metadatum> = meta.iter().collect();
 
-    let spectrum_list = parse_spectrum_list(schema(), &meta, &child_index)
-        .expect("parse_spectrum_list returned None");
+    let spectrum_list =
+        parse_spectrum_list(&meta_ref, &child_index).expect("parse_spectrum_list returned None");
     spectrum_list
 }
 

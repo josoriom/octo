@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use crate::b64::utilities::common::ChildIndex;
-use crate::mzml::{schema::TagId, schema::schema};
+use crate::mzml::schema::TagId;
 use crate::{
     CvParam,
     b64::decode::Metadatum,
@@ -113,15 +113,14 @@ fn first_spectrum_scan_list_cv_params_item_by_item() {
         .map(|m| m.item_index)
         .expect("no Scan entries found in spectra metadata");
 
-    let scoped: Vec<Metadatum> = meta
-        .into_iter()
+    let scoped: Vec<&Metadatum> = meta
+        .iter()
         .filter(|m| m.item_index == scan_item_index)
         .collect();
 
-    let child_index = ChildIndex::new(&scoped);
+    let child_index = ChildIndex::new(&meta);
 
-    let scan_list =
-        parse_scan_list(schema(), &scoped, &child_index).expect("parse_scan_list returned None");
+    let scan_list = parse_scan_list(&scoped, &child_index).expect("parse_scan_list returned None");
     assert_eq!(scan_list.count, Some(1));
     assert_eq!(scan_list.scans.len(), 1);
 
@@ -217,15 +216,14 @@ fn second_spectrum_scan_list_cv_params_item_by_item() {
         .copied()
         .expect("no second Scan item_index found in spectra metadata");
 
-    let scoped: Vec<Metadatum> = meta
-        .into_iter()
+    let scoped: Vec<&Metadatum> = meta
+        .iter()
         .filter(|m| m.item_index == scan_item_index)
         .collect();
 
-    let child_index = ChildIndex::new(&scoped);
+    let child_index = ChildIndex::new(&meta);
 
-    let scan_list =
-        parse_scan_list(schema(), &scoped, &child_index).expect("parse_scan_list returned None");
+    let scan_list = parse_scan_list(&scoped, &child_index).expect("parse_scan_list returned None");
 
     assert_eq!(scan_list.count, Some(1));
     assert_eq!(scan_list.scans.len(), 1);

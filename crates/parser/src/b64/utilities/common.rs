@@ -148,31 +148,11 @@ pub fn find_node_by_tag<'a>(schema: &'a Schema, tag: TagId) -> Option<&'a Schema
 }
 
 #[inline]
-pub fn find_node_by_tag_rec<'a>(node: &'a SchemaNode, tag: TagId) -> Option<&'a SchemaNode> {
-    if node.self_tags.iter().any(|&t| t == tag) {
-        return Some(node);
-    }
-    for child in node.children.values() {
-        if let Some(n) = find_node_by_tag_rec(child, tag) {
-            return Some(n);
-        }
-    }
-    None
-}
-
-#[inline]
-pub fn child_node<'a>(parent: Option<&'a SchemaNode>, tag: TagId) -> Option<&'a SchemaNode> {
-    let p = parent?;
-    let key = p.child_key_for_tag(tag)?;
-    p.children.get(key)
-}
-
-#[inline]
 pub fn value_to_opt_string(v: &MetadatumValue) -> Option<String> {
     match v {
-        MetadatumValue::Empty => None,
-        MetadatumValue::Text(s) => Some(s.clone()),
         MetadatumValue::Number(x) => Some(x.to_string()),
+        MetadatumValue::Text(s) => Some(s.clone()),
+        MetadatumValue::Empty => None,
     }
 }
 
@@ -182,11 +162,10 @@ pub fn is_cv_prefix(p: &str) -> bool {
 }
 
 #[inline]
-pub fn unit_cv_ref(unit_accession: &Option<String>) -> Option<String> {
+pub fn unit_cv_ref(unit_accession: Option<&str>) -> Option<String> {
     unit_accession
-        .as_deref()
-        .and_then(|u| u.split_once(':'))
-        .map(|(prefix, _)| prefix.to_string())
+        .and_then(|ua| ua.split_once(':'))
+        .map(|(pref, _)| pref.to_owned())
 }
 
 #[inline]
@@ -335,7 +314,7 @@ pub fn is_y_array(bda: &BinaryDataArray) -> bool {
 }
 
 #[inline]
-pub fn ordered_unique_owner_ids(metadata: &[Metadatum], tag: TagId) -> Vec<u32> {
+pub fn ordered_unique_owner_ids(metadata: &[&Metadatum], tag: TagId) -> Vec<u32> {
     let mut out = Vec::new();
     let mut seen = HashSet::with_capacity(metadata.len().min(1024));
 
@@ -440,6 +419,44 @@ impl ChildIndex {
             .map(|v| v.as_slice())
             .unwrap_or(&[])
     }
+
+    #[inline]
+    pub fn new_from_refs(metadata: &[&Metadatum]) -> Self {
+        let mut ids_count: HashMap<u64, usize> = HashMap::with_capacity(metadata.len());
+        let mut children_count: HashMap<u32, usize> = HashMap::with_capacity(metadata.len());
+
+        for &m in metadata {
+            *ids_count
+                .entry(key_parent_tag(m.parent_index, m.tag_id))
+                .or_insert(0) += 1;
+            *children_count.entry(m.parent_index).or_insert(0) += 1;
+        }
+
+        let mut ids_by_parent_tag: HashMap<u64, Vec<u32>> = HashMap::with_capacity(ids_count.len());
+        for (k, c) in ids_count {
+            ids_by_parent_tag.insert(k, Vec::with_capacity(c));
+        }
+
+        let mut children_by_parent: HashMap<u32, Vec<u32>> =
+            HashMap::with_capacity(children_count.len());
+        for (k, c) in children_count {
+            children_by_parent.insert(k, Vec::with_capacity(c));
+        }
+
+        for &m in metadata {
+            let k = key_parent_tag(m.parent_index, m.tag_id);
+            ids_by_parent_tag.get_mut(&k).unwrap().push(m.owner_id);
+            children_by_parent
+                .get_mut(&m.parent_index)
+                .unwrap()
+                .push(m.owner_id);
+        }
+
+        Self {
+            ids_by_parent_tag,
+            children_by_parent,
+        }
+    }
 }
 
 #[inline]
@@ -460,4 +477,159 @@ pub fn value_as_u32(v: &MetadatumValue) -> Option<u32> {
         }
         MetadatumValue::Empty => None,
     }
+}
+
+pub type OwnerRows<'a> = HashMap<u32, Vec<&'a Metadatum>>;
+
+pub struct ParseCtx<'a> {
+    pub metadata: &'a [&'a Metadatum],
+    pub child_index: &'a ChildIndex,
+    pub owner_rows: &'a OwnerRows<'a>,
+}
+
+#[inline]
+pub fn ids_for_parent(ctx: &ParseCtx<'_>, parent_id: u32, tag_id: TagId) -> Vec<u32> {
+    let mut ids = unique_ids(ctx.child_index.ids(parent_id, tag_id));
+    if ids.is_empty() {
+        ids = ordered_unique_owner_ids(ctx.metadata, tag_id);
+        ids.retain(|&id| is_child_of(ctx.owner_rows, id, parent_id));
+    }
+    ids
+}
+
+#[inline]
+pub fn ids_for_parent_tags(ctx: &ParseCtx<'_>, parent_id: u32, tags: &[TagId]) -> Vec<u32> {
+    let mut combined: Vec<u32> = Vec::new();
+    for &tag in tags {
+        combined.extend_from_slice(ctx.child_index.ids(parent_id, tag));
+    }
+
+    let mut ids = unique_ids(&combined);
+    if ids.is_empty() {
+        for &tag in tags {
+            ids.extend(ordered_unique_owner_ids(ctx.metadata, tag));
+        }
+        ids.retain(|&id| is_child_of(ctx.owner_rows, id, parent_id));
+        ids.sort_unstable();
+        ids.dedup();
+    }
+
+    ids
+}
+
+#[inline]
+pub fn unique_ids(ids: &[u32]) -> Vec<u32> {
+    let mut out = Vec::with_capacity(ids.len());
+    let mut seen = HashSet::with_capacity(ids.len());
+    for &id in ids {
+        if seen.insert(id) {
+            out.push(id);
+        }
+    }
+    out
+}
+
+#[inline]
+pub fn rows_for_owner<'a>(
+    owner_rows: &'a HashMap<u32, Vec<&'a Metadatum>>,
+    owner_id: u32,
+) -> &'a [&'a Metadatum] {
+    owner_rows
+        .get(&owner_id)
+        .map(|v| v.as_slice())
+        .unwrap_or(&[])
+}
+
+#[inline]
+pub fn child_params_for_parent<'a>(
+    owner_rows: &HashMap<u32, Vec<&'a Metadatum>>,
+    child_index: &ChildIndex,
+    parent_id: u32,
+) -> Vec<&'a Metadatum> {
+    let cv_ids = child_index.ids(parent_id, TagId::CvParam);
+    let up_ids = child_index.ids(parent_id, TagId::UserParam);
+
+    let mut out = Vec::with_capacity(cv_ids.len() + up_ids.len());
+
+    for &id in cv_ids {
+        if let Some(rows) = owner_rows.get(&id) {
+            out.extend(rows.iter().copied());
+        }
+    }
+    for &id in up_ids {
+        if let Some(rows) = owner_rows.get(&id) {
+            out.extend(rows.iter().copied());
+        }
+    }
+
+    out
+}
+
+#[inline]
+pub fn allowed_from_rows<'a>(rows: &[&'a Metadatum]) -> HashSet<&'a str> {
+    let mut allowed = HashSet::new();
+    for m in rows {
+        if let Some(acc) = m.accession.as_deref() {
+            if !acc.starts_with("B000:") {
+                allowed.insert(acc);
+            }
+        }
+    }
+    allowed
+}
+
+#[inline]
+pub fn is_child_of(
+    owner_rows: &HashMap<u32, Vec<&Metadatum>>,
+    child_id: u32,
+    parent_id: u32,
+) -> bool {
+    rows_for_owner(owner_rows, child_id)
+        .first()
+        .map(|m| m.parent_index == parent_id)
+        .unwrap_or(false)
+}
+
+#[inline]
+pub fn b000_attr_text(rows: &[&Metadatum], accession_tail: u32) -> Option<String> {
+    for m in rows {
+        let acc = m.accession.as_deref()?;
+        if !acc.starts_with("B000:") {
+            continue;
+        }
+        if parse_accession_tail(Some(acc)) != accession_tail {
+            continue;
+        }
+        return match &m.value {
+            MetadatumValue::Text(s) => Some(s.clone()),
+            MetadatumValue::Number(n) => Some(n.to_string()),
+            _ => None,
+        };
+    }
+    None
+}
+
+#[inline]
+pub fn parse_accession_tail(accession: Option<&str>) -> u32 {
+    let s = accession.unwrap_or("");
+    let tail = match s.rsplit_once(':') {
+        Some((_, t)) => t,
+        None => s,
+    };
+
+    let mut v: u32 = 0;
+    let mut saw_digit = false;
+
+    for b in tail.bytes() {
+        if (b'0'..=b'9').contains(&b) {
+            saw_digit = true;
+            let d = (b - b'0') as u32;
+            match v.checked_mul(10).and_then(|x| x.checked_add(d)) {
+                Some(n) => v = n,
+                None => return 0,
+            }
+        }
+    }
+
+    if saw_digit { v } else { 0 }
 }

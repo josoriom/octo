@@ -1,24 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::{
     b64::utilities::{
-        Header,
-        common::*,
-        parse_chromatogram_list, parse_cv_and_user_params, parse_cv_list,
-        parse_data_processing_list,
-        parse_file_description::{
-            allowed_from_rows, b000_attr_text, child_params_for_parent, is_child_of,
-            parse_accession_tail, parse_file_description, rows_for_owner, unique_ids,
-        },
-        parse_global_metadata::parse_global_metadata,
-        parse_header, parse_instrument_list, parse_metadata, parse_referenceable_param_group_list,
-        parse_sample_list, parse_scan_settings_list, parse_software_list, parse_spectrum_list,
+        Header, common::*, parse_chromatogram_list, parse_cv_and_user_params, parse_cv_list,
+        parse_data_processing_list, parse_file_description::parse_file_description,
+        parse_global_metadata::parse_global_metadata, parse_header, parse_instrument_list,
+        parse_metadata, parse_referenceable_param_group_list, parse_sample_list,
+        parse_scan_settings_list, parse_software_list, parse_spectrum_list,
     },
-    mzml::{
-        attr_meta::*,
-        schema::{SchemaTree as Schema, TagId, schema},
-        structs::*,
-    },
+    mzml::{attr_meta::*, schema::TagId, structs::*},
 };
 
 pub const INDEX_ENTRY_SIZE: usize = 32;
@@ -37,43 +27,34 @@ const ACC_64BIT_FLOAT: u32 = 1_000_523;
 const HDR_FLAG_GLOBAL_META_COMP: u8 = 1 << 6;
 
 pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
-    let schema = schema();
     let header = parse_header(bytes)?;
     let global_meta = parse_global_metadata_section(bytes, &header)?;
     let global_child_index = ChildIndex::new(&global_meta);
 
-    let cv_list = parse_cv_list(&schema, &global_meta, &global_child_index);
+    let global_meta_ref: Vec<&Metadatum> = global_meta.iter().collect();
+
+    let cv_list = parse_cv_list(&global_meta_ref, &global_child_index);
 
     Ok(MzML {
         cv_list,
-        file_description: parse_file_description(&schema, &global_meta, &global_child_index)
+        file_description: parse_file_description(&global_meta_ref, &global_child_index)
             .expect("missing <fileDescription> in global metadata"),
         referenceable_param_group_list: parse_referenceable_param_group_list(
-            &schema,
-            &global_meta,
+            &global_meta_ref,
             &global_child_index,
         ),
-        sample_list: parse_sample_list(&schema, &global_meta, &global_child_index),
-        instrument_list: parse_instrument_list(&schema, &global_meta, &global_child_index),
-        software_list: parse_software_list(&schema, &global_meta, &global_child_index),
-        data_processing_list: parse_data_processing_list(
-            &schema,
-            &global_meta,
-            &global_child_index,
-        ),
-        scan_settings_list: parse_scan_settings_list(&schema, &global_meta, &global_child_index),
-        run: parse_run(&schema, bytes, &header, &global_meta)?,
+        sample_list: parse_sample_list(&global_meta_ref, &global_child_index),
+        instrument_list: parse_instrument_list(&global_meta_ref, &global_child_index),
+        software_list: parse_software_list(&global_meta_ref, &global_child_index),
+        data_processing_list: parse_data_processing_list(&global_meta_ref, &global_child_index),
+        scan_settings_list: parse_scan_settings_list(&global_meta_ref, &global_child_index),
+        run: parse_run(bytes, &header, &global_meta)?,
     })
 }
 
 /// <run>
 #[inline]
-fn parse_run(
-    schema: &Schema,
-    bytes: &[u8],
-    header: &Header,
-    global_meta: &[Metadatum],
-) -> Result<Run, String> {
+fn parse_run(bytes: &[u8], header: &Header, global_meta: &[Metadatum]) -> Result<Run, String> {
     let spec_meta = parse_metadata_section(
         bytes,
         header,
@@ -125,11 +106,6 @@ fn parse_run(
 
     let sample_ref = b000_attr_text(run_rows, ACC_ATTR_SAMPLE_REF).filter(|s| !s.is_empty());
 
-    let allowed_run_schema: HashSet<&str> = find_node_by_tag(schema, TagId::Run)
-        .and_then(|n| child_node(Some(n), TagId::CvParam))
-        .map(|n| n.accessions.iter().map(|s| s.as_str()).collect())
-        .unwrap_or_default();
-
     let mut params_meta = Vec::with_capacity(
         run_rows.len() + child_params_for_parent(&owner_rows, &run_child_index, run_id).len(),
     );
@@ -140,21 +116,21 @@ fn parse_run(
         run_id,
     ));
 
-    let (cv_params, user_params) = if allowed_run_schema.is_empty() {
-        let allowed_meta = allowed_from_rows(&params_meta);
-        parse_cv_and_user_params(&allowed_meta, &params_meta)
-    } else {
-        parse_cv_and_user_params(&allowed_run_schema, &params_meta)
-    };
+    let (cv_params, user_params) = parse_cv_and_user_params(&params_meta);
+
+    let global_meta_ref: Vec<&Metadatum> = global_meta.iter().collect();
 
     let source_file_ref_list =
-        parse_source_file_ref_list(&owner_rows, &run_child_index, global_meta, run_id);
+        parse_source_file_ref_list(&owner_rows, &run_child_index, &global_meta_ref, run_id);
 
     let spec_child_index = ChildIndex::new(&spec_meta);
     let chrom_child_index = ChildIndex::new(&chrom_meta);
 
-    let spectrum_list = parse_spectrum_list(schema, &spec_meta, &spec_child_index);
-    let chromatogram_list = parse_chromatogram_list(schema, &chrom_meta, &chrom_child_index);
+    let spec_meta_ref: Vec<&Metadatum> = spec_meta.iter().collect();
+    let chrom_meta_ref: Vec<&Metadatum> = chrom_meta.iter().collect();
+
+    let spectrum_list = parse_spectrum_list(&spec_meta_ref, &spec_child_index);
+    let chromatogram_list = parse_chromatogram_list(&chrom_meta_ref, &chrom_child_index);
 
     let (spectra_pairs, chrom_pairs) = parse_binaries(bytes, header)?;
 
@@ -773,7 +749,7 @@ fn parse_global_metadata_section(bytes: &[u8], header: &Header) -> Result<Vec<Me
 fn parse_source_file_ref_list(
     owner_rows: &HashMap<u32, Vec<&Metadatum>>,
     child_index: &ChildIndex,
-    metadata: &[Metadatum],
+    metadata: &[&Metadatum],
     run_id: u32,
 ) -> Option<SourceFileRefList> {
     let mut list_ids = unique_ids(child_index.ids(run_id, TagId::SourceFileRefList));

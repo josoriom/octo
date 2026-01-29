@@ -1,8 +1,6 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::{
     CvParam, UserParam,
-    b64::utilities::common::{is_cv_prefix, unit_cv_ref, value_to_opt_string},
+    b64::utilities::common::{OwnerRows, is_cv_prefix, unit_cv_ref, value_to_opt_string},
     decode::Metadatum,
     mzml::{attr_meta::CV_REF_ATTR, cv_table},
 };
@@ -13,7 +11,7 @@ where
     I: IntoIterator<Item = &'m Metadatum>,
     F: FnMut(u32, &[&'m Metadatum]) -> T,
 {
-    let mut groups: HashMap<u32, Vec<&'m Metadatum>> = HashMap::new();
+    let mut groups: OwnerRows<'m> = OwnerRows::new();
 
     for m in iter {
         groups.entry(m.owner_id).or_default().push(m);
@@ -34,14 +32,9 @@ where
 }
 
 #[inline]
-pub fn parse_cv_and_user_params(
-    allowed: &HashSet<&str>,
-    metadata: &[&Metadatum],
-) -> (Vec<CvParam>, Vec<UserParam>) {
+pub fn parse_cv_and_user_params(metadata: &[&Metadatum]) -> (Vec<CvParam>, Vec<UserParam>) {
     let mut cv_params = Vec::with_capacity(metadata.len());
     let mut user_params = Vec::new();
-
-    let allow_all = allowed.is_empty();
 
     for m in metadata {
         let Some(acc) = m.accession.as_deref() else {
@@ -50,31 +43,31 @@ pub fn parse_cv_and_user_params(
         let Some((prefix, _)) = acc.split_once(':') else {
             continue;
         };
+
         if prefix == CV_REF_ATTR {
             continue;
         }
 
         let value = value_to_opt_string(&m.value);
+
+        let unit_accession_str = m.unit_accession.as_deref();
+        let unit_cv_ref = unit_cv_ref(unit_accession_str);
+
+        let name = cv_table::get(acc)
+            .and_then(|v| v.as_str())
+            .unwrap_or(acc)
+            .to_owned();
+
+        let unit_name = unit_accession_str
+            .and_then(|ua| cv_table::get(ua).and_then(|v| v.as_str()))
+            .map(str::to_owned);
+
         let unit_accession = m.unit_accession.clone();
-        let unit_cv_ref = unit_cv_ref(&unit_accession);
 
         if is_cv_prefix(prefix) {
-            // TODO: Check if possible allowed accessions per tag
-            let _ = (allow_all, allowed);
-
-            let name = cv_table::get(acc)
-                .and_then(|v| v.as_str())
-                .unwrap_or(acc)
-                .to_string();
-
-            let unit_name = unit_accession
-                .as_deref()
-                .and_then(|ua| cv_table::get(ua).and_then(|v| v.as_str()))
-                .map(|s| s.to_string());
-
             cv_params.push(CvParam {
-                cv_ref: Some(prefix.to_string()),
-                accession: Some(acc.to_string()),
+                cv_ref: Some(prefix.to_owned()),
+                accession: Some(acc.to_owned()),
                 name,
                 value,
                 unit_cv_ref,
@@ -82,17 +75,12 @@ pub fn parse_cv_and_user_params(
                 unit_accession,
             });
         } else {
-            let name = cv_table::get(acc)
-                .and_then(|v| v.as_str())
-                .unwrap_or(acc)
-                .to_string();
-
             user_params.push(UserParam {
                 name,
                 r#type: None,
                 unit_accession,
                 unit_cv_ref,
-                unit_name: None,
+                unit_name: None, // keep existing behavior (don’t populate unit_name for user params)
                 value,
             });
         }

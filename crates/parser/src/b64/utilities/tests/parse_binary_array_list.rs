@@ -128,12 +128,13 @@ fn first_chrom_cv_params_item_by_item() {
     parent_ids.sort_unstable();
     let pid = parent_ids[0];
 
-    let scoped: Vec<Metadatum> = meta
-        .into_iter()
+    let scoped: Vec<&Metadatum> = meta
+        .iter()
         .filter(|m| m.tag_id == TagId::BinaryDataArray && m.parent_index == pid)
         .collect();
 
-    let bdal = parse_binary_data_array_list(&scoped).unwrap();
+    let bdal = parse_binary_data_array_list(&scoped).unwrap(); // only if it expects &[&Metadatum]
+
     assert_eq!(bdal.count, Some(3));
     assert_eq!(bdal.binary_data_arrays.len(), 3);
 
@@ -343,8 +344,8 @@ fn second_chrom_cv_params_item_by_item() {
     parent_ids.sort_unstable();
     let pid = parent_ids[parent_ids.len() - 1];
 
-    let scoped: Vec<Metadatum> = meta
-        .into_iter()
+    let scoped: Vec<&Metadatum> = meta
+        .iter()
         .filter(|m| m.tag_id == TagId::BinaryDataArray && m.parent_index == pid)
         .collect();
 
@@ -558,8 +559,8 @@ fn first_spectrum_cv_params_item_by_item() {
     parent_ids.sort_unstable();
     let pid = parent_ids[0];
 
-    let scoped: Vec<Metadatum> = meta
-        .into_iter()
+    let scoped: Vec<&Metadatum> = meta
+        .iter()
         .filter(|m| m.tag_id == TagId::BinaryDataArray && m.parent_index == pid)
         .collect();
 
@@ -720,8 +721,8 @@ fn second_spectrum_cv_params_item_by_item() {
     parent_ids.sort_unstable();
     let pid = parent_ids[parent_ids.len() - 1];
 
-    let scoped: Vec<Metadatum> = meta
-        .into_iter()
+    let scoped: Vec<&Metadatum> = meta
+        .iter()
         .filter(|m| m.tag_id == TagId::BinaryDataArray && m.parent_index == pid)
         .collect();
 

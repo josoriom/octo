@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    b64::utilities::{
-        common::{ChildIndex, child_node, find_node_by_tag, ordered_unique_owner_ids},
-        parse_file_description::{b000_attr_text, is_child_of, rows_for_owner, unique_ids},
+    b64::utilities::common::{
+        ChildIndex, OwnerRows, ParseCtx, b000_attr_text, ids_for_parent, rows_for_owner,
     },
     decode::Metadatum,
     mzml::{
@@ -11,51 +10,53 @@ use crate::{
             ACC_ATTR_CV_FULL_NAME, ACC_ATTR_CV_URI, ACC_ATTR_CV_VERSION, ACC_ATTR_ID,
             ACC_ATTR_LABEL,
         },
-        schema::{SchemaTree as Schema, TagId},
+        schema::TagId,
         structs::{Cv, CvList},
     },
 };
 
 /// <cvList>
 #[inline]
-pub fn parse_cv_list(
-    schema: &Schema,
-    metadata: &[Metadatum],
-    child_index: &ChildIndex,
-) -> Option<CvList> {
-    if let Some(list_node) = find_node_by_tag(schema, TagId::CvList) {
-        let _ = child_node(Some(list_node), TagId::Cv);
-    }
+pub fn parse_cv_list(metadata: &[&Metadatum], child_index: &ChildIndex) -> Option<CvList> {
+    let mut owner_rows: OwnerRows<'_> = HashMap::with_capacity(metadata.len());
 
-    let mut owner_rows: HashMap<u32, Vec<&Metadatum>> = HashMap::with_capacity(metadata.len());
-    for m in metadata {
+    let mut list_id: Option<u32> = None;
+    let mut fallback_list_id: Option<u32> = None;
+
+    for &m in metadata {
         owner_rows.entry(m.owner_id).or_default().push(m);
+
+        match m.tag_id {
+            TagId::CvList => {
+                if list_id.is_none() {
+                    list_id = Some(m.owner_id);
+                }
+            }
+            TagId::Cv => {
+                if fallback_list_id.is_none() {
+                    fallback_list_id = Some(m.parent_index);
+                }
+            }
+            _ => {}
+        }
     }
 
-    let list_id = metadata
-        .iter()
-        .find(|m| m.tag_id == TagId::CvList)
-        .map(|m| m.owner_id)
-        .or_else(|| {
-            metadata
-                .iter()
-                .find(|m| m.tag_id == TagId::Cv)
-                .map(|m| m.parent_index)
-        })?;
+    let list_id = list_id.or(fallback_list_id)?;
 
-    let mut cv_ids = unique_ids(child_index.ids(list_id, TagId::Cv));
-    if cv_ids.is_empty() {
-        cv_ids = ordered_unique_owner_ids(metadata, TagId::Cv);
-        cv_ids.retain(|&id| is_child_of(&owner_rows, id, list_id));
-    }
+    let ctx = ParseCtx {
+        metadata,
+        child_index,
+        owner_rows: &owner_rows,
+    };
 
+    let cv_ids = ids_for_parent(&ctx, list_id, TagId::Cv);
     if cv_ids.is_empty() {
         return None;
     }
 
     let mut cv = Vec::with_capacity(cv_ids.len());
     for id in cv_ids {
-        cv.push(parse_cv(&owner_rows, id));
+        cv.push(parse_cv(ctx.owner_rows, id));
     }
 
     Some(CvList {

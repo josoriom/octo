@@ -3,7 +3,6 @@ use std::{fs, path::PathBuf};
 use crate::b64::decode::Metadatum;
 use crate::b64::utilities::common::ChildIndex;
 use crate::b64::utilities::{parse_chromatogram_list, parse_header, parse_metadata};
-use crate::mzml::schema::schema;
 use crate::{ChromatogramList, CvParam};
 
 const PATH: &str = "data/b64/test.b64";
@@ -104,10 +103,11 @@ fn parse_chromatogram_list_from_test_file() -> ChromatogramList {
         "chromatograms",
     );
 
+    let meta_ref: Vec<&Metadatum> = meta.iter().collect();
+
     let child_index = ChildIndex::new(&meta);
 
-    parse_chromatogram_list(schema(), &meta, &child_index)
-        .expect("parse_chromatogram_list returned None")
+    parse_chromatogram_list(&meta_ref, &child_index).expect("parse_chromatogram_list returned None")
 }
 
 #[test]

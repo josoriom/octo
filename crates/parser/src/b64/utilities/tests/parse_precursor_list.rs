@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use crate::b64::utilities::common::ChildIndex;
-use crate::mzml::{schema::TagId, schema::schema};
+use crate::mzml::schema::TagId;
 use crate::{
     CvParam,
     b64::decode::Metadatum,
@@ -113,14 +113,14 @@ fn first_spectrum_precursor_list_must_be_none() {
         .map(|m| m.item_index)
         .expect("no Scan entries found in spectra metadata");
 
-    let scoped: Vec<Metadatum> = meta
-        .into_iter()
+    let scoped: Vec<&Metadatum> = meta
+        .iter()
         .filter(|m| m.item_index == scan_item_index)
         .collect();
 
-    let child_index = ChildIndex::new(&scoped);
+    let child_index = ChildIndex::new(&meta);
 
-    let precursor_list = parse_precursor_list(schema(), &scoped, &child_index);
+    let precursor_list = parse_precursor_list(&scoped, &child_index);
 
     assert!(
         precursor_list.is_none(),
@@ -160,14 +160,13 @@ fn second_spectrum_precursor_list_cv_params_item_by_item() {
         .copied()
         .expect("no second Scan item_index found in spectra metadata");
 
-    let scoped: Vec<Metadatum> = meta
-        .into_iter()
+    let scoped: Vec<&Metadatum> = meta
+        .iter()
         .filter(|m| m.item_index == scan_item_index)
         .collect();
 
-    let child_index = ChildIndex::new(&scoped);
-
-    let precursor_list = parse_precursor_list(schema(), &scoped, &child_index)
+    let child_index = ChildIndex::new(&meta);
+    let precursor_list = parse_precursor_list(&scoped, &child_index)
         .expect("parse_precursor_list returned None for second spectrum");
     assert_eq!(precursor_list.count, Some(1));
     assert_eq!(precursor_list.precursors.len(), 1);
