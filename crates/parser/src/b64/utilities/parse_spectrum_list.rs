@@ -142,10 +142,32 @@ pub fn parse_spectrum_list(
             continue;
         }
 
-        let local_child_index = ChildIndex::new_from_refs(spectrum_meta.as_slice());
+        let mut root_id = 0u32;
+        let mut has_other_root = false;
+        for &m in spectrum_meta {
+            if m.tag_id != TagId::Spectrum {
+                continue;
+            }
+            if root_id == 0 {
+                root_id = m.owner_id;
+            } else if m.owner_id != root_id {
+                has_other_root = true;
+                break;
+            }
+        }
+
+        let scoped_meta: Vec<&Metadatum>;
+        let used_meta: &[&Metadatum] = if has_other_root && root_id != 0 {
+            scoped_meta = collect_subtree_metadata(spectrum_meta, child_index, root_id);
+            scoped_meta.as_slice()
+        } else {
+            spectrum_meta
+        };
+
+        let local_child_index = ChildIndex::new_from_refs(used_meta);
 
         spectra.push(parse_spectrum(
-            spectrum_meta.as_slice(),
+            used_meta,
             pos as u32,
             default_data_processing_ref.as_deref(),
             &local_child_index,

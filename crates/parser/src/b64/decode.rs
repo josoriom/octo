@@ -971,11 +971,15 @@ fn attach_pairs_to_run_lists(
     chrom_pairs: &[Vec<(ArrayData, ArrayData)>],
 ) {
     if let Some(sl) = run.spectrum_list.as_mut() {
-        for (i, sp) in sl.spectra.iter_mut().enumerate() {
-            let Some(pairs) = spectra_pairs.get(i) else {
+        for sp in sl.spectra.iter_mut() {
+            let idx = sp.index.unwrap_or(0) as usize;
+
+            let Some(pairs) = spectra_pairs.get(idx) else {
                 continue;
             };
-            let Some((x, y)) = pairs.get(0) else { continue };
+            let Some((x, y)) = pairs.get(0) else {
+                continue;
+            };
 
             if let Some(bdal) = sp.binary_data_array_list.as_mut() {
                 attach_xy_arrays_to_bdal(bdal, x, y, ACC_MZ_ARRAY, ACC_INTENSITY_ARRAY);
@@ -984,11 +988,15 @@ fn attach_pairs_to_run_lists(
     }
 
     if let Some(cl) = run.chromatogram_list.as_mut() {
-        for (i, ch) in cl.chromatograms.iter_mut().enumerate() {
-            let Some(pairs) = chrom_pairs.get(i) else {
+        for ch in cl.chromatograms.iter_mut() {
+            let idx = ch.index.unwrap_or(0) as usize;
+
+            let Some(pairs) = chrom_pairs.get(idx) else {
                 continue;
             };
-            let Some((x, y)) = pairs.get(0) else { continue };
+            let Some((x, y)) = pairs.get(0) else {
+                continue;
+            };
 
             if let Some(bdal) = ch.binary_data_array_list.as_mut() {
                 attach_xy_arrays_to_bdal(bdal, x, y, ACC_TIME_ARRAY, ACC_INTENSITY_ARRAY);
