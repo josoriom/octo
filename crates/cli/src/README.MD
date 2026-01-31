@@ -46,6 +46,10 @@ Batch converts files under a folder **recursively**, preserving the relative fol
   - Default: `12`
   - Compression level (only relevant for mzML → b64/b32)
 
+- `--overwrite`
+  - If set, overwrites output files even if they already exist.
+  - If not set, existing non-empty outputs are skipped.
+
 ### Choose exactly one conversion mode (required)
 
 - `--mzml-to-b64`
@@ -59,6 +63,19 @@ Batch converts files under a folder **recursively**, preserving the relative fol
 - `--b64-to-mzml`
   - Converts `.b64` and `.b32` → `.mzML`
   - Uses `decode(...)` into `MzML`, then `bin_to_mzml(&mzml)` to produce mzML XML
+
+### Filtering flags (optional)
+
+You may pass **at most one** of the following:
+
+- `--pattern <STR>`
+  - Unicode case-insensitive substring match.
+
+- `--pattern-exact <STR>`
+  - Case-sensitive substring match.
+
+- `--regex <REGEX>`
+  - Regex match against the filename.
 
 ---
 

@@ -1,8 +1,10 @@
 use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand};
+use regex::Regex;
 use serde::Serialize;
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 use octo::{
@@ -18,11 +20,18 @@ USAGE:
   octo -h | --help
   octo -v | --version
 
-  octo convert (--mzml-to-b64 | --mzml-to-b32 | --b64-to-mzml) [--input-path DIR] [--output-path DIR] [--level 0..22]
+  octo convert (--mzml-to-b64 | --mzml-to-b32 | --b64-to-mzml)
+               --input-path DIR
+               --output-path DIR
+               [--level 0..22]
+               [--overwrite]
+               [--pattern STR | --pattern-exact STR | --regex REGEX]
+
   octo cat --file-path PATH
 
 CAT FLAGS:
-  --file-path PATH     input file (.b64/.b32), prints full parsed JSON
+  --file-path PATH
+      input file (.mzML/.b64/.b32), prints full parsed JSON
 
 CONVERT FLAGS:
   --mzml-to-b64        .mzML -> .b64
@@ -32,6 +41,9 @@ CONVERT FLAGS:
   --output-path DIR    default: crates/parser/data/b64
   --level 0..22        default: 12
   --overwrite          default: false (skip if output already exists)
+  --pattern           lowercase filename + STR (ASCII), then substring match
+  --pattern-exact      case-insensitive substring match (Unicode lowercase)
+  --regex REGEX        only process files whose name matches REGEX
 
 EXAMPLES:
   octo convert --mzml-to-b64 --input-path crates/parser/data/mzml --output-path crates/parser/data/b64
@@ -73,20 +85,34 @@ enum Cmd {
             .args(["mzml_to_b64", "mzml_to_b32", "b64_to_mzml"])
             .required(true)
             .multiple(false)
+    ),
+    group(
+        ArgGroup::new("pattern_mode")
+            .args(["pattern", "pattern_exact", "regex"])
+            .multiple(false)
     )
 )]
 struct ConvertArgs {
-    #[arg(long)]
-    input_path: Option<PathBuf>,
+    #[arg(long, required = true)]
+    input_path: PathBuf,
 
-    #[arg(long)]
-    output_path: Option<PathBuf>,
+    #[arg(long, required = true)]
+    output_path: PathBuf,
 
     #[arg(long = "level", default_value_t = 12, value_parser = clap::value_parser!(u8).range(0..=22))]
     compression_level: u8,
 
     #[arg(long, default_value_t = false, action = ArgAction::SetTrue)]
     overwrite: bool,
+
+    #[arg(long = "pattern")]
+    pattern: Option<String>,
+
+    #[arg(long = "pattern-exact")]
+    pattern_exact: Option<String>,
+
+    #[arg(long = "regex")]
+    regex: Option<String>,
 
     #[command(flatten)]
     which: ConvertWhich,
@@ -143,14 +169,6 @@ fn cat(cmd: CatArgs) -> Result<(), String> {
     print_json_full(&mzml)
 }
 
-fn workspace_root() -> PathBuf {
-    let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    here.ancestors()
-        .nth(2)
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf()
-}
-
 fn file_ext_lower(path: &Path) -> String {
     path.extension()
         .and_then(|s| s.to_str())
@@ -191,7 +209,36 @@ fn read_mzml_or_b64(file_path: &Path) -> Result<MzML, String> {
     ))
 }
 
-fn collect_files_with_exts(input_root: &Path, exts: &[&str]) -> Result<Vec<PathBuf>, String> {
+fn build_name_filter(
+    pattern: Option<&str>,
+    pattern_exact: Option<&str>,
+    regex: Option<&str>,
+) -> Result<Option<Box<dyn Fn(&str) -> bool>>, String> {
+    if let Some(p) = pattern {
+        let needle = p.to_lowercase();
+        return Ok(Some(Box::new(move |name: &str| {
+            name.to_lowercase().contains(&needle)
+        })));
+    }
+
+    if let Some(p) = pattern_exact {
+        let needle = p.to_string();
+        return Ok(Some(Box::new(move |name: &str| name.contains(&needle))));
+    }
+
+    if let Some(r) = regex {
+        let re = Regex::new(r).map_err(|e| format!("invalid regex: {e}"))?;
+        return Ok(Some(Box::new(move |name: &str| re.is_match(name))));
+    }
+
+    Ok(None)
+}
+
+fn collect_files_with_exts(
+    input_root: &Path,
+    exts: &[&str],
+    name_filter: Option<&dyn Fn(&str) -> bool>,
+) -> Result<Vec<PathBuf>, String> {
     let mut out = Vec::new();
     let mut stack = vec![input_root.to_path_buf()];
 
@@ -208,16 +255,16 @@ fn collect_files_with_exts(input_root: &Path, exts: &[&str]) -> Result<Vec<PathB
                 continue;
             }
             let ext = file_ext_lower(&p);
-            let mut ok = false;
-            for want in exts {
-                if ext == *want {
-                    ok = true;
-                    break;
+            if !exts.iter().any(|want| ext == *want) {
+                continue;
+            }
+            if let Some(f) = name_filter {
+                let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                if !f(name) {
+                    continue;
                 }
             }
-            if ok {
-                out.push(p);
-            }
+            out.push(p);
         }
     }
 
@@ -226,20 +273,18 @@ fn collect_files_with_exts(input_root: &Path, exts: &[&str]) -> Result<Vec<PathB
 }
 
 fn convert(cmd: ConvertArgs) -> Result<(), String> {
-    let workspace = workspace_root();
     let cwd = std::env::current_dir().map_err(|e| format!("get current dir failed: {e}"))?;
 
-    let input_root = match cmd.input_path.as_deref() {
-        Some(p) => resolve_user_path(&cwd, p),
-        None => workspace.join("crates/parser/data/mzml"),
-    };
-
-    let output_root = match cmd.output_path.as_deref() {
-        Some(p) => resolve_user_path(&cwd, p),
-        None => workspace.join("crates/parser/data/b64"),
-    };
+    let input_root = resolve_user_path(&cwd, &cmd.input_path);
+    let output_root = resolve_user_path(&cwd, &cmd.output_path);
 
     fs::create_dir_all(&output_root).map_err(|e| format!("create output dir failed: {e}"))?;
+
+    let filter = build_name_filter(
+        cmd.pattern.as_deref(),
+        cmd.pattern_exact.as_deref(),
+        cmd.regex.as_deref(),
+    )?;
 
     const MB: f64 = 1024.0 * 1024.0;
 
@@ -247,10 +292,10 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
         let out_ext = if cmd.which.mzml_to_b32 { "b32" } else { "b64" };
         let f32_compress = cmd.which.mzml_to_b32;
 
-        let files = collect_files_with_exts(&input_root, &["mzml"])?;
+        let files = collect_files_with_exts(&input_root, &["mzml"], filter.as_deref())?;
         if files.is_empty() {
             return Err(format!(
-                "no .mzML files found under {}",
+                "no matching .mzML files found under {}",
                 input_root.display()
             ));
         }
@@ -310,6 +355,8 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                 continue;
             }
 
+            let t0 = Instant::now();
+
             let bytes = match fs::read(&in_path) {
                 Ok(v) => v,
                 Err(e) => {
@@ -330,23 +377,25 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
 
             let encoded = encode(&mzml, cmd.compression_level, f32_compress);
 
-            let in_mb = bytes.len() as f64 / MB;
-            let out_mb = encoded.len() as f64 / MB;
-
-            println!(
-                "[{}/{}] output: {}  input={:.2} MB, output={:.2} MB",
-                idx,
-                total,
-                out_path.display(),
-                in_mb,
-                out_mb
-            );
-
-            if let Err(e) = fs::write(&out_path, encoded) {
+            if let Err(e) = fs::write(&out_path, &encoded) {
                 eprintln!("{}: write failed: {e}", out_path.display());
                 failed += 1;
                 continue;
             }
+
+            let elapsed_s = t0.elapsed().as_secs_f64();
+            let in_mb = bytes.len() as f64 / MB;
+            let out_mb = encoded.len() as f64 / MB;
+
+            println!(
+                "[{}/{}] output: {}  input={:.2} MB, output={:.2} MB, time={:.3}s",
+                idx,
+                total,
+                out_path.display(),
+                in_mb,
+                out_mb,
+                elapsed_s
+            );
 
             ok += 1;
         }
@@ -359,10 +408,10 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
     }
 
     if cmd.which.b64_to_mzml {
-        let files = collect_files_with_exts(&input_root, &["b64", "b32"])?;
+        let files = collect_files_with_exts(&input_root, &["b64", "b32"], filter.as_deref())?;
         if files.is_empty() {
             return Err(format!(
-                "no .b64/.b32 files found under {}",
+                "no matching .b64/.b32 files found under {}",
                 input_root.display()
             ));
         }
@@ -422,6 +471,8 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                 continue;
             }
 
+            let t0 = Instant::now();
+
             let in_bytes = match fs::read(&in_path) {
                 Ok(v) => v,
                 Err(e) => {
@@ -449,23 +500,25 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                 }
             };
 
-            let in_mb = in_bytes.len() as f64 / MB;
-            let out_mb = xml.len() as f64 / MB;
-
-            println!(
-                "[{}/{}] output: {}  input={:.2} MB, output={:.2} MB",
-                idx,
-                total,
-                out_path.display(),
-                in_mb,
-                out_mb
-            );
-
             if let Err(e) = fs::write(&out_path, xml.as_bytes()) {
                 eprintln!("{}: write failed: {e}", out_path.display());
                 failed += 1;
                 continue;
             }
+
+            let elapsed_s = t0.elapsed().as_secs_f64();
+            let in_mb = in_bytes.len() as f64 / MB;
+            let out_mb = xml.len() as f64 / MB;
+
+            println!(
+                "[{}/{}] output: {}  input={:.2} MB, output={:.2} MB, time={:.3}s",
+                idx,
+                total,
+                out_path.display(),
+                in_mb,
+                out_mb,
+                elapsed_s
+            );
 
             ok += 1;
         }
