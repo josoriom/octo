@@ -1,12 +1,12 @@
-const HDR_FLAG_GLOBAL_META_COMP: u8 = 1 << 6;
-const HEADER_SIZE: usize = 192;
+const HEADER_SIZE: usize = 512;
+const RESERVED_SIZE: usize = HEADER_SIZE - 208;
 
 pub fn parse_header(bytes: &[u8]) -> Result<Header, String> {
     if bytes.len() < HEADER_SIZE {
         return Err("header: file too small".to_string());
     }
 
-    let mut r = Reader::new(bytes);
+    let mut r = Reader::new(&bytes[..HEADER_SIZE]);
 
     let file_signature = r.read_arr::<4>("file_signature")?;
     let endianness_flag = r.read_u8("endianness_flag")?;
@@ -54,16 +54,22 @@ pub fn parse_header(bytes: &[u8]) -> Result<Header, String> {
     let block_count_chrom_x = r.read_u32_le("block_count_chrom_x")?;
     let block_count_chrom_y = r.read_u32_le("block_count_chrom_y")?;
 
-    let reserved_flags = r.read_u8("reserved_flags")?;
+    let codec_id = r.read_u8("codec_id")?;
     let chrom_x_format = r.read_u8("chrom_x_format")?;
     let chrom_y_format = r.read_u8("chrom_y_format")?;
     let spect_x_format = r.read_u8("spect_x_format")?;
     let spect_y_format = r.read_u8("spect_y_format")?;
+
     let compression_level = r.read_u8("compression_level")?;
     let array_filter = r.read_u8("array_filter")?;
-    let reserved = r.read_arr::<13>("reserved")?;
 
-    let _ = reserved_flags & HDR_FLAG_GLOBAL_META_COMP;
+    let _pad_179_183 = r.read_arr::<5>("pad_179_183")?;
+
+    let size_spec_meta_uncompressed = r.read_u64_le("size_spec_meta_uncompressed")?;
+    let size_chrom_meta_uncompressed = r.read_u64_le("size_chrom_meta_uncompressed")?;
+    let size_global_meta_uncompressed = r.read_u64_le("size_global_meta_uncompressed")?;
+
+    let reserved = r.read_arr::<RESERVED_SIZE>("reserved")?;
 
     Ok(Header {
         file_signature,
@@ -105,13 +111,17 @@ pub fn parse_header(bytes: &[u8]) -> Result<Header, String> {
         block_count_chrom_x,
         block_count_chrom_y,
 
-        reserved_flags,
+        codec_id,
         chrom_x_format,
         chrom_y_format,
         spect_x_format,
         spect_y_format,
         compression_level,
         array_filter,
+
+        size_spec_meta_uncompressed,
+        size_chrom_meta_uncompressed,
+        size_global_meta_uncompressed,
 
         reserved,
     })
@@ -158,7 +168,7 @@ pub struct Header {
     pub block_count_chrom_x: u32,
     pub block_count_chrom_y: u32,
 
-    pub reserved_flags: u8,
+    pub codec_id: u8,
     pub chrom_x_format: u8,
     pub chrom_y_format: u8,
     pub spect_x_format: u8,
@@ -166,7 +176,11 @@ pub struct Header {
     pub compression_level: u8,
     pub array_filter: u8,
 
-    pub reserved: [u8; 13],
+    pub size_spec_meta_uncompressed: u64,
+    pub size_chrom_meta_uncompressed: u64,
+    pub size_global_meta_uncompressed: u64,
+
+    pub reserved: [u8; RESERVED_SIZE],
 }
 
 struct Reader<'a> {

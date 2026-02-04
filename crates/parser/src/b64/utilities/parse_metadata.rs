@@ -4,8 +4,8 @@ use crate::{
     mzml::{attr_meta::format_accession, schema::TagId},
 };
 
-const HDR_CODEC_MASK: u8 = 0x0F;
-const HDR_CODEC_ZSTD: u8 = 1;
+pub const HDR_CODEC_NONE: u8 = 0;
+pub const HDR_CODEC_ZSTD: u8 = 1;
 
 pub fn parse_metadata(
     bytes: &[u8],
@@ -13,20 +13,17 @@ pub fn parse_metadata(
     meta_count: u32,
     num_count: u32,
     str_count: u32,
-    compressed: bool,
-    reserved_flags: u8,
+    codec_id: u8,
+    expected: usize,
 ) -> Result<Vec<Metadatum>, String> {
-    let codec_id = reserved_flags & HDR_CODEC_MASK;
-
     let owned;
-    let bytes = if compressed {
-        if codec_id != HDR_CODEC_ZSTD {
-            return Err(format!("unsupported metadata codec_id={codec_id}"));
+    let bytes = match codec_id {
+        HDR_CODEC_NONE => bytes,
+        HDR_CODEC_ZSTD => {
+            owned = decompress_zstd_allow_aligned_padding(bytes, expected)?;
+            owned.as_slice()
         }
-        owned = decompress_zstd_allow_aligned_padding(bytes)?;
-        owned.as_slice()
-    } else {
-        bytes
+        other => return Err(format!("unsupported metadata codec_id={other}")),
     };
 
     let item_count_usize = item_count as usize;
@@ -37,8 +34,8 @@ pub fn parse_metadata(
     let mut pos = 0usize;
 
     let ci = read_u32_vec(bytes, &mut pos, item_count_usize + 1)?;
-    let moi = read_u32_vec(bytes, &mut pos, meta_count_usize)?; // MOI
-    let mpi = read_u32_vec(bytes, &mut pos, meta_count_usize)?; // MPI
+    let moi = read_u32_vec(bytes, &mut pos, meta_count_usize)?;
+    let mpi = read_u32_vec(bytes, &mut pos, meta_count_usize)?;
 
     let mti = take(bytes, &mut pos, meta_count_usize, "metadatum tag id")?;
     let mri = take(bytes, &mut pos, meta_count_usize, "metadatum ref id")?;
@@ -55,7 +52,7 @@ pub fn parse_metadata(
     let vs_needed = vs_len_bytes(vk, &vi, &voff, &vlen)?;
     let vs = take(bytes, &mut pos, vs_needed, "string values")?;
 
-    if !compressed {
+    if codec_id == HDR_CODEC_NONE {
         let trailing = &bytes[pos..];
         if trailing.len() > 7 || trailing.iter().any(|&b| b != 0) {
             return Err("trailing bytes in metadata section".to_string());
@@ -106,7 +103,13 @@ pub fn parse_metadata(
                     if off.checked_add(len).map_or(true, |e| e > vs.len()) {
                         return Err("string slice out of bounds".to_string());
                     }
-                    MetadatumValue::Text(String::from_utf8_lossy(&vs[off..off + len]).into_owned())
+                    if len == 0 {
+                        MetadatumValue::Text(String::new())
+                    } else {
+                        MetadatumValue::Text(
+                            String::from_utf8_lossy(&vs[off..off + len]).into_owned(),
+                        )
+                    }
                 }
                 2 => MetadatumValue::Empty,
                 _ => MetadatumValue::Empty,

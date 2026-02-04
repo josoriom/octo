@@ -18,23 +18,23 @@ fn check_header() {
     assert_eq!(header.endianness_flag, 0);
     assert_eq!(header.reserved_alignment, [1, 0, 0]);
 
-    assert_eq!(header.off_spec_index, 192);
-    assert_eq!(header.off_chrom_index, 256);
-    assert_eq!(header.off_spec_meta, 320);
-    assert_eq!(header.off_chrom_meta, 824);
-    assert_eq!(header.off_global_meta, 1128);
+    assert_eq!(header.off_spec_index, 512);
+    assert_eq!(header.off_chrom_index, 576);
+    assert_eq!(header.off_spec_meta, 640);
+    assert_eq!(header.off_chrom_meta, 1144);
+    assert_eq!(header.off_global_meta, 1448);
 
     assert_eq!(header.size_container_spect_x, 96);
-    assert_eq!(header.off_container_spect_x, 1952);
+    assert_eq!(header.off_container_spect_x, 2272);
 
     assert_eq!(header.size_container_spect_y, 90);
-    assert_eq!(header.off_container_spect_y, 2048);
+    assert_eq!(header.off_container_spect_y, 2368);
 
     assert_eq!(header.size_container_chrom_x, 96);
-    assert_eq!(header.off_container_chrom_x, 2144);
+    assert_eq!(header.off_container_chrom_x, 2464);
 
     assert_eq!(header.size_container_chrom_y, 90);
-    assert_eq!(header.off_container_chrom_y, 2240);
+    assert_eq!(header.off_container_chrom_y, 2560);
 
     assert_eq!(header.spectrum_count, 2);
     assert_eq!(header.chrom_count, 2);
@@ -56,7 +56,8 @@ fn check_header() {
     assert_eq!(header.block_count_chrom_x, 1);
     assert_eq!(header.block_count_chrom_y, 1);
 
-    assert_eq!(header.reserved_flags, 113);
+    assert_eq!(header.codec_id, 1);
+
     assert_eq!(header.chrom_x_format, 2);
     assert_eq!(header.chrom_y_format, 1);
     assert_eq!(header.spect_x_format, 2);
@@ -64,7 +65,11 @@ fn check_header() {
     assert_eq!(header.compression_level, 12);
     assert_eq!(header.array_filter, 1);
 
-    assert_eq!(header.reserved, [0; 13]);
+    assert!(header.size_spec_meta_uncompressed > 0);
+    assert!(header.size_chrom_meta_uncompressed > 0);
+    assert!(header.size_global_meta_uncompressed > 0);
+
+    assert_eq!(header.reserved, [0; 512 - 208]);
 
     let len = bytes.len() as u64;
     for &off in &[

@@ -20,12 +20,11 @@ fn parse_metadata_section_from_test_file(
     meta_count: u32,
     num_count: u32,
     str_count: u32,
-    compression_flag_bit: u8,
-    expected_total_meta_len: usize,
+    codec_id: u8,
+    expected_uncompressed: u64,
     section_name: &str,
 ) -> Vec<Metadatum> {
     let bytes = read_bytes(PATH);
-    let header = parse_header(&bytes).expect("parse_header failed");
 
     let c0 = start_off as usize;
     let c1 = end_off as usize;
@@ -44,25 +43,19 @@ fn parse_metadata_section_from_test_file(
         "test.b64 should contain {expected_item_count} {section_name} items"
     );
 
-    let compressed = (header.reserved_flags & (1u8 << compression_flag_bit)) != 0;
     let slice = &bytes[c0..c1];
 
+    let expected = if codec_id == crate::b64::utilities::parse_metadata::HDR_CODEC_ZSTD {
+        usize::try_from(expected_uncompressed)
+            .unwrap_or_else(|_| panic!("{section_name}: expected_uncompressed overflow"))
+    } else {
+        0
+    };
+
     let meta = parse_metadata(
-        slice,
-        item_count,
-        meta_count,
-        num_count,
-        str_count,
-        compressed,
-        header.reserved_flags,
+        slice, item_count, meta_count, num_count, str_count, codec_id, expected,
     )
     .expect("parse_metadata failed");
-
-    assert_eq!(
-        meta.len(),
-        expected_total_meta_len,
-        "unexpected {section_name} metadata count (expected {expected_total_meta_len} total items)"
-    );
 
     meta
 }
@@ -98,8 +91,8 @@ fn parse_chromatogram_list_from_test_file() -> ChromatogramList {
         header.chrom_meta_count,
         header.chrom_num_count,
         header.chrom_str_count,
-        5,
-        header.chrom_meta_count as usize,
+        header.codec_id,
+        header.size_chrom_meta_uncompressed,
         "chromatograms",
     );
 

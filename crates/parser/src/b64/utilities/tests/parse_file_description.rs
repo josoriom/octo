@@ -1,5 +1,3 @@
-// crates/parser/src/b64/utilities/tests/parse_file_description.rs
-
 use std::{fs, path::PathBuf};
 
 use serde_json::Value;
@@ -13,7 +11,6 @@ use crate::b64::{
 };
 
 const PATH: &str = "data/b64/test.b64";
-const GLOBAL_META_COMPRESSION_BIT: u8 = 6;
 
 fn read_bytes(path: &str) -> Vec<u8> {
     let full = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(path);
@@ -34,7 +31,6 @@ fn parse_global_metadata_from_test_file() -> Vec<Metadatum> {
     );
 
     let slice = &bytes[start..end];
-    let compressed = (header.reserved_flags & (1u8 << GLOBAL_META_COMPRESSION_BIT)) != 0;
 
     let meta = parse_global_metadata(
         slice,
@@ -42,8 +38,8 @@ fn parse_global_metadata_from_test_file() -> Vec<Metadatum> {
         header.global_meta_count,
         header.global_num_count,
         header.global_str_count,
-        compressed,
-        header.reserved_flags,
+        header.codec_id,
+        header.size_global_meta_uncompressed,
     )
     .expect("parse_global_metadata failed");
 

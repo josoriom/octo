@@ -5,7 +5,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::b64::decode::{Metadatum, MetadatumValue};
-use crate::mzml::attr_meta::{CV_REF_ATTR, attr_key_from_tail, attr_tail_from_key};
+use crate::mzml::attr_meta::{CV_REF_ATTR, attr_tail_from_key};
 use crate::mzml::schema::{SchemaNode, TagId, schema};
 
 static XMLKEY_TO_TAIL: OnceLock<HashMap<&'static str, u32>> = OnceLock::new();

@@ -56,7 +56,8 @@ struct GlobalMetaItem {
     parents: Vec<u32>,
 }
 
-const HEADER_SIZE: usize = 192;
+const HEADER_SIZE: usize = 512;
+const FILE_TRAILER: [u8; 8] = *b"END\0\0\0\0\0";
 const INDEX_ENTRY_SIZE: usize = 32;
 const BLOCK_DIR_ENTRY_SIZE: usize = 32;
 
@@ -69,14 +70,6 @@ const ACC_TIME_ARRAY: u32 = 1_000_595;
 const ACC_32BIT_FLOAT: u32 = 1_000_521;
 const ACC_64BIT_FLOAT: u32 = 1_000_523;
 
-pub const HDR_CODEC_ZSTD: u8 = 1;
-pub const HDR_CODEC_MASK: u8 = 0x0F;
-
-const HDR_FLAG_SPEC_META_COMP: u8 = 1 << 4;
-const HDR_FLAG_CHROM_META_COMP: u8 = 1 << 5;
-const HDR_FLAG_GLOBAL_META_COMP: u8 = 1 << 6;
-
-const HDR_ARRAY_FILTER_OFF: usize = 178;
 const ARRAY_FILTER_NONE: u8 = 0;
 const ARRAY_FILTER_BYTE_SHUFFLE: u8 = 1;
 
@@ -85,27 +78,7 @@ fn compress_bytes(input: &[u8], compression_level: u8) -> Vec<u8> {
     if compression_level == 0 {
         return input.to_vec();
     }
-    zstd_compress(input, compression_level as i32).unwrap_or_else(|_| input.to_vec())
-}
-
-#[inline]
-fn header_codec_and_flags(
-    codec_id: u8,
-    spec_meta_compressed: bool,
-    chrom_meta_compressed: bool,
-    global_meta_compressed: bool,
-) -> u8 {
-    let mut v = codec_id & HDR_CODEC_MASK;
-    if spec_meta_compressed {
-        v |= HDR_FLAG_SPEC_META_COMP;
-    }
-    if chrom_meta_compressed {
-        v |= HDR_FLAG_CHROM_META_COMP;
-    }
-    if global_meta_compressed {
-        v |= HDR_FLAG_GLOBAL_META_COMP;
-    }
-    v
+    zstd_compress(input, compression_level as i32).expect("zstd compression failed")
 }
 
 #[derive(Copy, Clone)]
@@ -140,21 +113,6 @@ fn write_u32_slice_le(buf: &mut Vec<u8>, xs: &[u32]) {
     } else {
         for &v in xs {
             write_u32_le(buf, v);
-        }
-    }
-}
-
-#[inline]
-fn write_u64_slice_le(buf: &mut Vec<u8>, xs: &[u64]) {
-    if cfg!(target_endian = "little") {
-        unsafe {
-            let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 8);
-            buf.extend_from_slice(b);
-        }
-    } else {
-        for &v in xs {
-            write_u64_le(buf, v);
         }
     }
 }
@@ -2556,6 +2514,10 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
     let mut chromatogram_meta_bytes = write_packed_meta_bytes(&chromatogram_meta);
     let mut global_meta_bytes = write_global_meta_bytes(&global_counts, &global_meta);
 
+    let size_spec_meta_uncompressed = spectrum_meta_bytes.len() as u64;
+    let size_chrom_meta_uncompressed = chromatogram_meta_bytes.len() as u64;
+    let size_global_meta_uncompressed = global_meta_bytes.len() as u64;
+
     if compress_meta {
         spectrum_meta_bytes = compress_bytes(&spectrum_meta_bytes, compression_level);
         chromatogram_meta_bytes = compress_bytes(&chromatogram_meta_bytes, compression_level);
@@ -2732,20 +2694,18 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
         set_u32_at(header, 164, block_count_chrom_x);
         set_u32_at(header, 168, block_count_chrom_y);
 
-        set_u8_at(
-            header,
-            172,
-            header_codec_and_flags(HDR_CODEC_ZSTD, compress_meta, compress_meta, compress_meta),
-        );
-
+        set_u8_at(header, 172, if compression_level == 0 { 0 } else { 1 });
         set_u8_at(header, 173, if chrom_x_store_f64 { 2 } else { 1 });
         set_u8_at(header, 174, if chrom_y_store_f64 { 2 } else { 1 });
         set_u8_at(header, 175, if spect_x_store_f64 { 2 } else { 1 });
         set_u8_at(header, 176, if spect_y_store_f64 { 2 } else { 1 });
 
         set_u8_at(header, 177, compression_level);
-        set_u8_at(header, HDR_ARRAY_FILTER_OFF, array_filter_id);
+        set_u8_at(header, 178, array_filter_id);
+        set_u64_at(header, 184, size_spec_meta_uncompressed);
+        set_u64_at(header, 192, size_chrom_meta_uncompressed);
+        set_u64_at(header, 200, size_global_meta_uncompressed);
     }
-
+    output.extend_from_slice(&FILE_TRAILER);
     output
 }

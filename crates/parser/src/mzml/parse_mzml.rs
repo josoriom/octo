@@ -2267,7 +2267,7 @@ fn parse_binary_data_array<R: BufRead>(
         ..Default::default()
     };
 
-    let mut binary_b64: Option<String> = None;
+    let mut binary_b64: Vec<u8> = Vec::new();
     let mut buf = Vec::with_capacity(1024);
 
     loop {
@@ -2292,7 +2292,10 @@ fn parse_binary_data_array<R: BufRead>(
                     &mut a.user_params,
                 )? {
                     if e.name().as_ref() == b"binary" {
-                        binary_b64 = Some(read_text_content(reader, b"binary")?);
+                        if let Some(encoded_length) = a.encoded_length {
+                            binary_b64.reserve(encoded_length);
+                        }
+                        read_text_content_ascii_no_ws_into(reader, b"binary", &mut binary_b64)?;
                     } else {
                         skip_element(reader, e.name().as_ref())?;
                     }
@@ -2308,20 +2311,14 @@ fn parse_binary_data_array<R: BufRead>(
     let flags = binary_array_flags(&a);
     a.numeric_type = Some(flags.numeric_type);
 
-    let Some(b64_raw) = binary_b64.as_deref() else {
-        return Ok(a);
-    };
-
-    let cleaned: String = b64_raw.chars().filter(|c| !c.is_whitespace()).collect();
-    if cleaned.is_empty() {
+    if binary_b64.is_empty() {
         return Ok(a);
     }
 
-    let mut bytes = Vec::new();
-    bytes.reserve(cleaned.len().saturating_mul(3) / 4 + 8);
+    let mut bytes = Vec::with_capacity(binary_b64.len().saturating_mul(3) / 4 + 8);
 
     STANDARD
-        .decode_vec(cleaned.as_bytes(), &mut bytes)
+        .decode_vec(&binary_b64, &mut bytes)
         .map_err(|e| format!("base64 decode failed: {e}"))?;
 
     if flags.is_zlib {
@@ -2464,42 +2461,6 @@ fn binary_array_flags(binary_data_array: &BinaryDataArray) -> BinaryArrayFlags {
     BinaryArrayFlags {
         is_zlib,
         numeric_type,
-    }
-}
-
-fn decode_f64_into(bytes: &[u8], little: bool, want: usize, out: &mut Vec<f64>) {
-    let n = want.min(bytes.len() / 8);
-    out.reserve(n);
-    let slice = &bytes[..n * 8];
-
-    if little {
-        for c in slice.chunks_exact(8) {
-            out.push(f64::from_bits(u64::from_le_bytes([
-                c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
-            ])));
-        }
-    } else {
-        for c in slice.chunks_exact(8) {
-            out.push(f64::from_bits(u64::from_be_bytes([
-                c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
-            ])));
-        }
-    }
-}
-
-fn decode_f32_into(bytes: &[u8], little: bool, want: usize, out: &mut Vec<f32>) {
-    let n = want.min(bytes.len() / 4);
-    out.reserve(n);
-    let slice = &bytes[..n * 4];
-
-    if little {
-        for c in slice.chunks_exact(4) {
-            out.push(f32::from_bits(u32::from_le_bytes([c[0], c[1], c[2], c[3]])));
-        }
-    } else {
-        for c in slice.chunks_exact(4) {
-            out.push(f32::from_bits(u32::from_be_bytes([c[0], c[1], c[2], c[3]])));
-        }
     }
 }
 
@@ -2748,4 +2709,46 @@ fn parse_offset_tag<R: BufRead>(
     let t = read_text_content(reader, b"offset")?;
     let offset = t.trim().parse::<u64>().unwrap_or(0);
     Ok(IndexOffset { id_ref, offset })
+}
+
+fn read_text_content_ascii_no_ws_into<R: BufRead>(
+    reader: &mut Reader<R>,
+    end: &[u8],
+    out: &mut Vec<u8>,
+) -> Result<(), String> {
+    out.clear();
+
+    let mut buf = Vec::with_capacity(512);
+
+    loop {
+        match reader
+            .read_event_into(&mut buf)
+            .map_err(|e| e.to_string())?
+        {
+            Event::Text(text_event) => {
+                let raw_bytes = text_event.as_ref();
+                out.extend(
+                    raw_bytes
+                        .iter()
+                        .copied()
+                        .filter(|byte_value| !byte_value.is_ascii_whitespace()),
+                );
+            }
+            Event::CData(cdata_event) => {
+                let raw_bytes = cdata_event.into_inner();
+                out.extend(
+                    raw_bytes
+                        .iter()
+                        .copied()
+                        .filter(|byte_value| !byte_value.is_ascii_whitespace()),
+                );
+            }
+            Event::End(end_event) if end_event.name().as_ref() == end => break,
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    Ok(())
 }

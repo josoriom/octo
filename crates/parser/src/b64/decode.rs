@@ -24,8 +24,6 @@ const ACC_TIME_ARRAY: u32 = 1_000_595;
 const ACC_32BIT_FLOAT: u32 = 1_000_521;
 const ACC_64BIT_FLOAT: u32 = 1_000_523;
 
-const HDR_FLAG_GLOBAL_META_COMP: u8 = 1 << 6;
-
 pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
     let header = parse_header(bytes)?;
     let global_meta = parse_global_metadata_section(bytes, &header)?;
@@ -64,7 +62,7 @@ fn parse_run(bytes: &[u8], header: &Header, global_meta: &[Metadatum]) -> Result
         header.spec_meta_count,
         header.spec_num_count,
         header.spec_str_count,
-        4,
+        header.size_spec_meta_uncompressed,
     );
 
     let chrom_meta = parse_metadata_section(
@@ -76,7 +74,7 @@ fn parse_run(bytes: &[u8], header: &Header, global_meta: &[Metadatum]) -> Result
         header.chrom_meta_count,
         header.chrom_num_count,
         header.chrom_str_count,
-        5,
+        header.size_chrom_meta_uncompressed,
     );
 
     let run_child_index = ChildIndex::new(global_meta);
@@ -132,7 +130,7 @@ fn parse_run(bytes: &[u8], header: &Header, global_meta: &[Metadatum]) -> Result
     let spectrum_list = parse_spectrum_list(&spec_meta_ref, &spec_child_index);
     let chromatogram_list = parse_chromatogram_list(&chrom_meta_ref, &chrom_child_index);
 
-    let (spectra_pairs, chrom_pairs) = parse_binaries(bytes, header)?;
+    let (mut spectra_pairs, mut chrom_pairs) = parse_binaries(bytes, header)?;
 
     let mut run = Run {
         id,
@@ -147,7 +145,7 @@ fn parse_run(bytes: &[u8], header: &Header, global_meta: &[Metadatum]) -> Result
         ..Default::default()
     };
 
-    attach_pairs_to_run_lists(&mut run, &spectra_pairs, &chrom_pairs);
+    attach_pairs_to_run_lists(&mut run, &mut spectra_pairs, &mut chrom_pairs);
 
     Ok(run)
 }
@@ -326,7 +324,7 @@ impl<'a> ContainerReader<'a> {
         let mut out = if self.compression_level == 0 {
             comp.to_vec()
         } else {
-            decompress_zstd(comp)?
+            decompress_zstd(comp, expected)?
         };
 
         if out.len() != expected {
@@ -338,10 +336,16 @@ impl<'a> ContainerReader<'a> {
         }
 
         if self.array_filter == ARRAY_FILTER_BYTE_SHUFFLE && self.elem_size > 1 {
-            self.scratch.resize(out.len(), 0);
+            let len = out.len();
+
+            self.scratch.clear();
+            self.scratch.reserve(len);
+            unsafe {
+                self.scratch.set_len(len);
+            }
+
             byte_unshuffle_into(&out, &mut self.scratch, self.elem_size);
             std::mem::swap(&mut out, &mut self.scratch);
-            self.scratch.clear();
         }
 
         self.cache[i] = Some(out);
@@ -355,8 +359,62 @@ impl<'a> ContainerReader<'a> {
     }
 }
 
-#[inline]
+#[inline(always)]
 fn byte_unshuffle_into(input: &[u8], output: &mut [u8], elem_size: usize) {
+    assert_eq!(input.len(), output.len(), "in/out size mismatch");
+    assert_eq!(input.len() % elem_size, 0, "len not multiple of elem_size");
+
+    match elem_size {
+        4 => unshuffle4(input, output),
+        8 => unshuffle8(input, output),
+        _ => unshuffle_generic(input, output, elem_size),
+    }
+}
+
+#[inline(always)]
+fn unshuffle4(input: &[u8], output: &mut [u8]) {
+    let n = input.len() / 4;
+
+    let (b0, rest) = input.split_at(n);
+    let (b1, rest) = rest.split_at(n);
+    let (b2, b3) = rest.split_at(n);
+
+    for i in 0..n {
+        let o = i * 4;
+        output[o] = b0[i];
+        output[o + 1] = b1[i];
+        output[o + 2] = b2[i];
+        output[o + 3] = b3[i];
+    }
+}
+
+#[inline(always)]
+fn unshuffle8(input: &[u8], output: &mut [u8]) {
+    let n = input.len() / 8;
+
+    let (b0, rest) = input.split_at(n);
+    let (b1, rest) = rest.split_at(n);
+    let (b2, rest) = rest.split_at(n);
+    let (b3, rest) = rest.split_at(n);
+    let (b4, rest) = rest.split_at(n);
+    let (b5, rest) = rest.split_at(n);
+    let (b6, b7) = rest.split_at(n);
+
+    for i in 0..n {
+        let o = i * 8;
+        output[o] = b0[i];
+        output[o + 1] = b1[i];
+        output[o + 2] = b2[i];
+        output[o + 3] = b3[i];
+        output[o + 4] = b4[i];
+        output[o + 5] = b5[i];
+        output[o + 6] = b6[i];
+        output[o + 7] = b7[i];
+    }
+}
+
+#[inline(always)]
+fn unshuffle_generic(input: &[u8], output: &mut [u8], elem_size: usize) {
     let count = input.len() / elem_size;
     for b in 0..elem_size {
         let in_base = b * count;
@@ -374,20 +432,26 @@ pub enum ArrayData {
 
 #[inline]
 fn bytes_to_f32_vec(raw: &[u8]) -> Vec<f32> {
+    debug_assert!(raw.len() % 4 == 0);
     let n = raw.len() / 4;
-    let mut out = vec![0.0f32; n];
-    for (i, c) in raw.chunks_exact(4).enumerate() {
-        out[i] = f32::from_le_bytes(c.try_into().unwrap());
+
+    let mut out = Vec::<f32>::with_capacity(n);
+    unsafe {
+        out.set_len(n);
+        std::ptr::copy_nonoverlapping(raw.as_ptr(), out.as_mut_ptr() as *mut u8, raw.len());
     }
     out
 }
 
 #[inline]
 fn bytes_to_f64_vec(raw: &[u8]) -> Vec<f64> {
+    debug_assert!(raw.len() % 8 == 0);
     let n = raw.len() / 8;
-    let mut out = vec![0.0f64; n];
-    for (i, c) in raw.chunks_exact(8).enumerate() {
-        out[i] = f64::from_le_bytes(c.try_into().unwrap());
+
+    let mut out = Vec::<f64>::with_capacity(n);
+    unsafe {
+        out.set_len(n);
+        std::ptr::copy_nonoverlapping(raw.as_ptr(), out.as_mut_ptr() as *mut u8, raw.len());
     }
     out
 }
@@ -575,8 +639,8 @@ fn ensure_float_flag(bda: &mut BinaryDataArray, is_f32: bool) {
 #[inline]
 fn attach_xy_arrays_to_bdal(
     list: &mut BinaryDataArrayList,
-    x: &ArrayData,
-    y: &ArrayData,
+    x: ArrayData,
+    y: ArrayData,
     x_kind: u32,
     y_kind: u32,
 ) {
@@ -611,17 +675,11 @@ fn attach_xy_arrays_to_bdal(
     if let Some(bda) = list.binary_data_arrays.get_mut(x_idx) {
         match x {
             ArrayData::F32(v) => {
-                match &mut bda.binary {
-                    Some(BinaryData::F32(dst)) => dst.clone_from(v),
-                    _ => bda.binary = Some(BinaryData::F32(v.clone())),
-                }
+                bda.binary = Some(BinaryData::F32(v));
                 ensure_float_flag(bda, true);
             }
             ArrayData::F64(v) => {
-                match &mut bda.binary {
-                    Some(BinaryData::F64(dst)) => dst.clone_from(v),
-                    _ => bda.binary = Some(BinaryData::F64(v.clone())),
-                }
+                bda.binary = Some(BinaryData::F64(v));
                 ensure_float_flag(bda, false);
             }
         }
@@ -630,17 +688,11 @@ fn attach_xy_arrays_to_bdal(
     if let Some(bda) = list.binary_data_arrays.get_mut(y_idx) {
         match y {
             ArrayData::F32(v) => {
-                match &mut bda.binary {
-                    Some(BinaryData::F32(dst)) => dst.clone_from(v),
-                    _ => bda.binary = Some(BinaryData::F32(v.clone())),
-                }
+                bda.binary = Some(BinaryData::F32(v));
                 ensure_float_flag(bda, true);
             }
             ArrayData::F64(v) => {
-                match &mut bda.binary {
-                    Some(BinaryData::F64(dst)) => dst.clone_from(v),
-                    _ => bda.binary = Some(BinaryData::F64(v.clone())),
-                }
+                bda.binary = Some(BinaryData::F64(v));
                 ensure_float_flag(bda, false);
             }
         }
@@ -694,7 +746,7 @@ fn parse_metadata_section(
     meta_count: u32,
     num_count: u32,
     str_count: u32,
-    compression_flag_bit: u8,
+    expected_uncompressed: u64,
 ) -> Vec<Metadatum> {
     let c0 = start_off as usize;
     let c1 = end_off as usize;
@@ -705,8 +757,9 @@ fn parse_metadata_section(
         "invalid metadata offsets: end out of bounds"
     );
 
-    let compressed = (header.reserved_flags & (1u8 << compression_flag_bit)) != 0;
     let slice = &bytes[c0..c1];
+
+    let expected = usize::try_from(expected_uncompressed).expect("metadata expected size overflow");
 
     parse_metadata(
         slice,
@@ -714,8 +767,8 @@ fn parse_metadata_section(
         meta_count,
         num_count,
         str_count,
-        compressed,
-        header.reserved_flags,
+        header.codec_id,
+        expected,
     )
     .expect("parse_metadata failed")
 }
@@ -732,7 +785,6 @@ fn parse_global_metadata_section(bytes: &[u8], header: &Header) -> Result<Vec<Me
     }
 
     let slice = &bytes[start..end];
-    let compressed = (header.reserved_flags & HDR_FLAG_GLOBAL_META_COMP) != 0;
 
     parse_global_metadata(
         slice,
@@ -740,8 +792,8 @@ fn parse_global_metadata_section(bytes: &[u8], header: &Header) -> Result<Vec<Me
         header.global_meta_count,
         header.global_num_count,
         header.global_str_count,
-        compressed,
-        header.reserved_flags,
+        header.codec_id,
+        header.size_global_meta_uncompressed,
     )
 }
 
@@ -821,8 +873,8 @@ fn parse_binaries(
     header: &Header,
 ) -> Result<
     (
-        Vec<Vec<(ArrayData, ArrayData)>>,
-        Vec<Vec<(ArrayData, ArrayData)>>,
+        Vec<Option<(ArrayData, ArrayData)>>,
+        Vec<Option<(ArrayData, ArrayData)>>,
     ),
     String,
 > {
@@ -923,8 +975,8 @@ fn parse_binaries(
         header.array_filter,
     )?;
 
-    let mut spectra_pairs: Vec<Vec<(ArrayData, ArrayData)>> = Vec::with_capacity(spec_count);
-    for e in &spec_index {
+    let mut spectra_pairs: Vec<Option<(ArrayData, ArrayData)>> = vec![None; spec_count];
+    for (i, e) in spec_index.iter().enumerate() {
         let x = decode_item_array(
             &mut r_spec_x,
             &spec_starts_x,
@@ -939,11 +991,11 @@ fn parse_binaries(
             e.inten_element_off,
             e.inten_element_len,
         )?;
-        spectra_pairs.push(vec![(x, y)]);
+        spectra_pairs[i] = Some((x, y));
     }
 
-    let mut chrom_pairs: Vec<Vec<(ArrayData, ArrayData)>> = Vec::with_capacity(chrom_count);
-    for e in &chrom_index {
+    let mut chrom_pairs: Vec<Option<(ArrayData, ArrayData)>> = vec![None; chrom_count];
+    for (i, e) in chrom_index.iter().enumerate() {
         let x = decode_item_array(
             &mut r_chrom_x,
             &chrom_starts_x,
@@ -958,7 +1010,7 @@ fn parse_binaries(
             e.inten_element_off,
             e.inten_element_len,
         )?;
-        chrom_pairs.push(vec![(x, y)]);
+        chrom_pairs[i] = Some((x, y));
     }
 
     Ok((spectra_pairs, chrom_pairs))
@@ -967,17 +1019,17 @@ fn parse_binaries(
 #[inline]
 fn attach_pairs_to_run_lists(
     run: &mut Run,
-    spectra_pairs: &[Vec<(ArrayData, ArrayData)>],
-    chrom_pairs: &[Vec<(ArrayData, ArrayData)>],
+    spectra_pairs: &mut [Option<(ArrayData, ArrayData)>],
+    chrom_pairs: &mut [Option<(ArrayData, ArrayData)>],
 ) {
     if let Some(sl) = run.spectrum_list.as_mut() {
         for sp in sl.spectra.iter_mut() {
             let idx = sp.index.unwrap_or(0) as usize;
 
-            let Some(pairs) = spectra_pairs.get(idx) else {
+            let Some(slot) = spectra_pairs.get_mut(idx) else {
                 continue;
             };
-            let Some((x, y)) = pairs.get(0) else {
+            let Some((x, y)) = slot.take() else {
                 continue;
             };
 
@@ -991,10 +1043,10 @@ fn attach_pairs_to_run_lists(
         for ch in cl.chromatograms.iter_mut() {
             let idx = ch.index.unwrap_or(0) as usize;
 
-            let Some(pairs) = chrom_pairs.get(idx) else {
+            let Some(slot) = chrom_pairs.get_mut(idx) else {
                 continue;
             };
-            let Some((x, y)) = pairs.get(0) else {
+            let Some((x, y)) = slot.take() else {
                 continue;
             };
 

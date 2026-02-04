@@ -1,7 +1,6 @@
-use std::{
-    collections::{HashMap, HashSet},
-    io::Read,
-};
+use std::collections::{HashMap, HashSet};
+
+use zstd::zstd_safe;
 
 use crate::{
     BinaryData, BinaryDataArray, BinaryDataArrayList,
@@ -87,16 +86,23 @@ pub fn vs_len_bytes(vk: &[u8], vi: &[u32], voff: &[u32], vlen: &[u32]) -> Result
 }
 
 #[inline]
-pub fn decompress_zstd_allow_aligned_padding(input: &[u8]) -> Result<Vec<u8>, String> {
+pub fn decompress_zstd_allow_aligned_padding(
+    input: &[u8],
+    expected: usize,
+) -> Result<Vec<u8>, String> {
+    if expected == 0 {
+        return Ok(Vec::new());
+    }
+
     if let Ok(n) = zstd::zstd_safe::find_frame_compressed_size(input) {
         if n > 0 && n <= input.len() {
-            if let Ok(v) = decompress_zstd(&input[..n]) {
+            if let Ok(v) = decompress_zstd(&input[..n], expected) {
                 return Ok(v);
             }
         }
     }
 
-    match decompress_zstd(input) {
+    match decompress_zstd(input, expected) {
         Ok(v) => Ok(v),
         Err(first_err) => {
             let mut trimmed = input;
@@ -106,7 +112,7 @@ pub fn decompress_zstd_allow_aligned_padding(input: &[u8]) -> Result<Vec<u8>, St
                     break;
                 }
                 trimmed = &trimmed[..trimmed.len() - 1];
-                if let Ok(v) = decompress_zstd(trimmed) {
+                if let Ok(v) = decompress_zstd(trimmed, expected) {
                     return Ok(v);
                 }
             }
@@ -116,11 +122,26 @@ pub fn decompress_zstd_allow_aligned_padding(input: &[u8]) -> Result<Vec<u8>, St
 }
 
 #[inline]
-pub fn decompress_zstd(mut input: &[u8]) -> Result<Vec<u8>, String> {
-    let mut dec = zstd::Decoder::new(&mut input).map_err(|e| format!("zstd decoder init: {e}"))?;
-    let mut out = Vec::new();
-    dec.read_to_end(&mut out)
-        .map_err(|e| format!("zstd decode: {e}"))?;
+pub fn decompress_zstd(comp: &[u8], expected: usize) -> Result<Vec<u8>, String> {
+    if expected == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut out: Vec<u8> = Vec::with_capacity(expected);
+    unsafe {
+        out.set_len(expected);
+    }
+
+    let actual = zstd_safe::decompress(out.as_mut_slice(), comp)
+        .map_err(|e| format!("zstd decode failed: {e:?}"))?;
+
+    if actual != expected {
+        return Err(format!(
+            "zstd: bad decoded size (got={}, expected={})",
+            actual, expected
+        ));
+    }
+
     Ok(out)
 }
 

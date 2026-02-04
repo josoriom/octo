@@ -42,7 +42,8 @@ fn spectra_meta_from_test_b64() -> Vec<Metadatum> {
         "invalid spectra meta offsets (end out of bounds)"
     );
 
-    let compressed = (header.reserved_flags & (1u8 << 4)) != 0;
+    let expected = usize::try_from(header.size_spec_meta_uncompressed)
+        .expect("size_spec_meta_uncompressed overflow");
 
     parse_metadata(
         &bytes[c0..c1],
@@ -50,8 +51,8 @@ fn spectra_meta_from_test_b64() -> Vec<Metadatum> {
         header.spec_meta_count,
         header.spec_num_count,
         header.spec_str_count,
-        compressed,
-        header.reserved_flags,
+        header.codec_id,
+        expected,
     )
     .expect("parse_metadata(spectra) failed")
 }
