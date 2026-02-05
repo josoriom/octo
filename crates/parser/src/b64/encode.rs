@@ -61,7 +61,7 @@ const FILE_TRAILER: [u8; 8] = *b"END\0\0\0\0\0";
 const INDEX_ENTRY_SIZE: usize = 32;
 const BLOCK_DIR_ENTRY_SIZE: usize = 32;
 
-const TARGET_BLOCK_UNCOMP_BYTES: usize = 512 * 1024 * 1024;
+const TARGET_BLOCK_UNCOMP_BYTES: usize = 64 * 1024 * 1024;
 
 const ACC_MZ_ARRAY: u32 = 1_000_514;
 const ACC_INTENSITY_ARRAY: u32 = 1_000_515;
