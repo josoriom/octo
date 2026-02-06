@@ -9,6 +9,7 @@ serde_json = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 octo = { path = "../parser" }
 regex = { workspace = true }
+rayon = { workspace = true }
 
 [[bin]]
 name = "octo"

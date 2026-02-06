@@ -769,36 +769,6 @@ fn write_run(
 }
 
 #[inline]
-fn is_scanlist_level_cv(acc: &str) -> bool {
-    matches!(acc, "MS:1000795")
-}
-
-#[inline]
-fn is_scan_level_cv(acc: &str) -> bool {
-    matches!(acc, "MS:1000016")
-}
-
-#[inline]
-fn is_scanwindow_level_cv(acc: &str) -> bool {
-    matches!(acc, "MS:1000501" | "MS:1000500")
-}
-
-#[inline]
-fn is_array_meta_cv(acc: &str) -> bool {
-    matches!(
-        acc,
-        "MS:1000523"
-            | "MS:1000521"
-            | "MS:1000522"
-            | "MS:1000519"
-            | "MS:1000576"
-            | "MS:1000595"
-            | "MS:1000514"
-            | "MS:1000515"
-    )
-}
-
-#[inline]
 fn binary_len(b: &BinaryData) -> usize {
     match b {
         BinaryData::F64(v) => v.len(),
@@ -1393,9 +1363,12 @@ fn write_binary_data_array(
     let cv_has_i32 = has_accession("MS:1000519"); // 32-bit integer
     let cv_has_i16 = has_accession("MS:1000518"); // 16-bit integer
 
-    let binary = bda.binary.as_ref().ok_or_else(|| {
-        "binaryDataArray.binary is None -> would produce empty <binary>. Populate BinaryDataArray.binary.".to_string()
-    })?;
+    // let binary = bda.binary.as_ref().ok_or_else(|| {
+    //     "binaryDataArray.binary is None -> would produce empty <binary>. Populate BinaryDataArray.binary.".to_string()
+    // })?;
+    let Some(binary) = bda.binary.as_ref() else {
+        return Ok(());
+    };
 
     if let Some(nt) = bda.numeric_type {
         let ok = match (binary, nt) {

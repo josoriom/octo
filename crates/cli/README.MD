@@ -1,9 +1,11 @@
 # Install `octo`
 
-Pick a directory:
+## 0) Choose install directory
+
+`INSTALL_DIR` can be any directory on your machine, for example the folder where you usually keep your command-line programs (e.g. `~/.local/bin` or `/usr/local/bin`).
 
 ```bash
-INSTALL_DIR="$HOME/.local/bin"
+INSTALL_DIR="/path/to/your/directory"
 mkdir -p "$INSTALL_DIR"
 ```
 
@@ -41,10 +43,22 @@ chmod +x "$INSTALL_DIR/octo"
 
 ---
 
-## 2) Add to PATH (.bashrc/.zshrc)
+## 2) Add `INSTALL_DIR` to `PATH` (shell environment)
+
+This appends an `export PATH=...` line to your shell, so your `PATH` environment variable includes `INSTALL_DIR` and `octo` is runnable from any directory.
+`source` reloads the shell file in the current terminal session (otherwise open a new terminal).
+
+### macOS (zsh)
 
 ```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$HOME/.zshrc"
+source "$HOME/.zshrc"
+```
+
+### Linux (bash)
+
+```bash
+echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$HOME/.bashrc"
 source "$HOME/.bashrc"
 ```
 

@@ -36,10 +36,10 @@ Batch converts files under a folder **recursively**, preserving the relative fol
 
 ### Common flags
 
-- `--input-path <DIR>`
+- `-i, --input-path <DIR>`
   - Directory to scan recursively (required)
 
-- `--output-path <DIR>`
+- `-o, --output-path <DIR>`
   - Output directory root (subfolders are created) (required)
 
 - `--level <0..22>`
@@ -48,9 +48,15 @@ Batch converts files under a folder **recursively**, preserving the relative fol
 
 - `--overwrite`
   - If set, overwrites output files even if they already exist.
-  - If not set, existing non-empty outputs are skipped.
+  - If not set, an output is skipped only if it already exists and looks complete.
 
-### Choose exactly one conversion mode (required)
+- `--cores <N>`
+  - Default: `1`
+  - Number of worker threads used for conversion (Rayon thread pool).
+
+### Conversion mode (optional)
+
+If you don’t pass any mode flag, the default is `--mzml-to-b64`.
 
 - `--mzml-to-b64`
   - Converts `.mzML` → `.b64`
@@ -86,6 +92,12 @@ Defaults:
 - `--level 12`
 
 Run (defaults):
+
+```bash
+octo convert -i crates/parser/data/mzml -o crates/parser/data/b64
+```
+
+or
 
 ```bash
 octo convert --mzml-to-b64 --input-path crates/parser/data/mzml --output-path crates/parser/data/b64
