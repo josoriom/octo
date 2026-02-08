@@ -10,9 +10,8 @@ use crate::{
         attr_meta::*,
         schema::TagId,
         structs::{
-            BinaryDataArray, BinaryDataArrayList, Chromatogram, CvParam, MzML, Precursor,
-            PrecursorList, Product, ProductList, ReferenceableParamGroup,
-            ReferenceableParamGroupRef, ScanList, Spectrum,
+            BinaryDataArray, Chromatogram, CvParam, MzML, Precursor, PrecursorList, Product,
+            ProductList, ReferenceableParamGroup, ReferenceableParamGroupRef, ScanList, Spectrum,
         },
     },
 };
@@ -58,7 +57,6 @@ struct GlobalMetaItem {
 
 const HEADER_SIZE: usize = 512;
 const FILE_TRAILER: [u8; 8] = *b"END\0\0\0\0\0";
-const INDEX_ENTRY_SIZE: usize = 32;
 const BLOCK_DIR_ENTRY_SIZE: usize = 32;
 
 const TARGET_BLOCK_UNCOMP_BYTES: usize = 64 * 1024 * 1024;
@@ -81,25 +79,146 @@ fn compress_bytes(input: &[u8], compression_level: u8) -> Vec<u8> {
     zstd_compress(input, compression_level as i32).expect("zstd compression failed")
 }
 
+const DTYPE_F32: u8 = 1;
+const DTYPE_F64: u8 = 2;
+const DTYPE_F16: u8 = 3;
+const DTYPE_I16: u8 = 4;
+const DTYPE_I32: u8 = 5;
+const DTYPE_I64: u8 = 6;
+
 #[derive(Copy, Clone)]
 enum ArrayRef<'a> {
+    F16(&'a [u16]),
     F32(&'a [f32]),
     F64(&'a [f64]),
+    I16(&'a [i16]),
+    I32(&'a [i32]),
+    I64(&'a [i64]),
 }
 
 impl<'a> ArrayRef<'a> {
     #[inline]
     fn len(self) -> usize {
         match self {
+            ArrayRef::F16(s) => s.len(),
             ArrayRef::F32(s) => s.len(),
             ArrayRef::F64(s) => s.len(),
+            ArrayRef::I16(s) => s.len(),
+            ArrayRef::I32(s) => s.len(),
+            ArrayRef::I64(s) => s.len(),
         }
     }
 }
 
 #[inline]
-fn elem_size(store_f64: bool) -> usize {
-    if store_f64 { 8 } else { 4 }
+fn dtype_elem_size(dtype: u8) -> usize {
+    match dtype {
+        DTYPE_F16 | DTYPE_I16 => 2,
+        DTYPE_F32 | DTYPE_I32 => 4,
+        DTYPE_F64 | DTYPE_I64 => 8,
+        _ => 1,
+    }
+}
+
+#[inline]
+fn write_u16_slice_le(buf: &mut Vec<u8>, xs: &[u16]) {
+    if cfg!(target_endian = "little") {
+        unsafe {
+            let p = xs.as_ptr() as *const u8;
+            let b = std::slice::from_raw_parts(p, xs.len() * 2);
+            buf.extend_from_slice(b);
+        }
+    } else {
+        for &v in xs {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+}
+
+#[inline]
+fn write_i16_slice_le(buf: &mut Vec<u8>, xs: &[i16]) {
+    if cfg!(target_endian = "little") {
+        unsafe {
+            let p = xs.as_ptr() as *const u8;
+            let b = std::slice::from_raw_parts(p, xs.len() * 2);
+            buf.extend_from_slice(b);
+        }
+    } else {
+        for &v in xs {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+}
+
+#[inline]
+fn write_i32_slice_le(buf: &mut Vec<u8>, xs: &[i32]) {
+    if cfg!(target_endian = "little") {
+        unsafe {
+            let p = xs.as_ptr() as *const u8;
+            let b = std::slice::from_raw_parts(p, xs.len() * 4);
+            buf.extend_from_slice(b);
+        }
+    } else {
+        for &v in xs {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+}
+
+#[inline]
+fn write_i64_slice_le(buf: &mut Vec<u8>, xs: &[i64]) {
+    if cfg!(target_endian = "little") {
+        unsafe {
+            let p = xs.as_ptr() as *const u8;
+            let b = std::slice::from_raw_parts(p, xs.len() * 8);
+            buf.extend_from_slice(b);
+        }
+    } else {
+        for &v in xs {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+}
+
+#[inline]
+fn write_array(buf: &mut Vec<u8>, arr: ArrayRef<'_>, dtype: u8) {
+    match dtype {
+        DTYPE_F16 => match arr {
+            ArrayRef::F16(xs) => write_u16_slice_le(buf, xs),
+            _ => {}
+        },
+        DTYPE_F32 => match arr {
+            ArrayRef::F32(xs) => write_f32_slice_le(buf, xs),
+            ArrayRef::F64(xs) => {
+                for &v in xs {
+                    write_f64_as_f32(buf, v);
+                }
+            }
+            _ => {}
+        },
+        DTYPE_F64 => match arr {
+            ArrayRef::F64(xs) => write_f64_slice_le(buf, xs),
+            ArrayRef::F32(xs) => {
+                for &v in xs {
+                    write_f64_le(buf, v as f64);
+                }
+            }
+            _ => {}
+        },
+        DTYPE_I16 => match arr {
+            ArrayRef::I16(xs) => write_i16_slice_le(buf, xs),
+            _ => {}
+        },
+        DTYPE_I32 => match arr {
+            ArrayRef::I32(xs) => write_i32_slice_le(buf, xs),
+            _ => {}
+        },
+        DTYPE_I64 => match arr {
+            ArrayRef::I64(xs) => write_i64_slice_le(buf, xs),
+            _ => {}
+        },
+        _ => {}
+    }
 }
 
 #[inline]
@@ -148,39 +267,6 @@ fn write_f32_slice_le(buf: &mut Vec<u8>, xs: &[f32]) {
 }
 
 #[inline]
-fn write_array_as_f64(buf: &mut Vec<u8>, arr: ArrayRef<'_>) {
-    match arr {
-        ArrayRef::F32(xs) => {
-            for &v in xs {
-                write_f64_le(buf, v as f64);
-            }
-        }
-        ArrayRef::F64(xs) => write_f64_slice_le(buf, xs),
-    }
-}
-
-#[inline]
-fn write_array_as_f32(buf: &mut Vec<u8>, arr: ArrayRef<'_>) {
-    match arr {
-        ArrayRef::F32(xs) => write_f32_slice_le(buf, xs),
-        ArrayRef::F64(xs) => {
-            for &v in xs {
-                write_f64_as_f32(buf, v);
-            }
-        }
-    }
-}
-
-#[inline]
-fn write_array(buf: &mut Vec<u8>, arr: ArrayRef<'_>, store_f64: bool) {
-    if store_f64 {
-        write_array_as_f64(buf, arr);
-    } else {
-        write_array_as_f32(buf, arr);
-    }
-}
-
-#[inline]
 fn byte_shuffle_into(input: &[u8], output: &mut [u8], elem_size: usize) {
     let count = input.len() / elem_size;
     for b in 0..elem_size {
@@ -189,23 +275,6 @@ fn byte_shuffle_into(input: &[u8], output: &mut [u8], elem_size: usize) {
         for e in 0..count {
             output[out_base + e] = input[in_i];
             in_i += elem_size;
-        }
-    }
-}
-
-#[inline]
-fn merge_declared_width(cur: &mut Option<bool>, next_is_f64: bool, axis: &'static str) {
-    match *cur {
-        None => *cur = Some(next_is_f64),
-        Some(prev) if prev == next_is_f64 => {}
-        Some(prev) => {
-            panic!(
-                "Mixed float widths for {axis}: saw {} then {}. \
-                 Your container format requires a single width per axis. \
-                 Either set f32_compress=true (normalize to f32) or normalize the input mzML.",
-                if prev { "f64" } else { "f32" },
-                if next_is_f64 { "f64" } else { "f32" },
-            );
         }
     }
 }
@@ -220,9 +289,9 @@ struct BlockDirEntry {
 struct ContainerBuilder {
     target_uncomp_bytes: usize,
     compression_level: u8,
-    elem_size: usize,
     do_shuffle: bool,
     current: Vec<u8>,
+    cur_elem_size: usize,
     entries: Vec<BlockDirEntry>,
     compressed: Vec<u8>,
     scratch: Vec<u8>,
@@ -230,18 +299,13 @@ struct ContainerBuilder {
 
 impl ContainerBuilder {
     #[inline]
-    fn new(
-        target_uncomp_bytes: usize,
-        compression_level: u8,
-        elem_size: usize,
-        do_shuffle: bool,
-    ) -> Self {
+    fn new(target_uncomp_bytes: usize, compression_level: u8, do_shuffle: bool) -> Self {
         Self {
             target_uncomp_bytes,
             compression_level,
-            elem_size,
             do_shuffle,
             current: Vec::new(),
+            cur_elem_size: 0,
             entries: Vec::new(),
             compressed: Vec::new(),
             scratch: Vec::new(),
@@ -256,6 +320,7 @@ impl ContainerBuilder {
     #[inline]
     fn flush_current(&mut self) {
         if self.current.is_empty() {
+            self.cur_elem_size = 0;
             return;
         }
 
@@ -270,15 +335,18 @@ impl ContainerBuilder {
             });
             self.compressed.extend_from_slice(&self.current);
             self.current.clear();
+            self.cur_elem_size = 0;
             return;
         }
 
-        let to_compress: &[u8] = if self.do_shuffle && self.elem_size > 1 {
+        let elem_size = self.cur_elem_size.max(1);
+
+        let to_compress: &[u8] = if self.do_shuffle && elem_size > 1 {
             self.scratch.resize(self.current.len(), 0);
             byte_shuffle_into(
                 self.current.as_slice(),
                 self.scratch.as_mut_slice(),
-                self.elem_size,
+                elem_size,
             );
             self.scratch.as_slice()
         } else {
@@ -296,17 +364,26 @@ impl ContainerBuilder {
 
         self.compressed.extend_from_slice(&comp);
         self.current.clear();
+        self.cur_elem_size = 0;
     }
 
     #[inline]
-    fn ensure_room_for_item(&mut self, item_bytes: usize) {
+    fn ensure_room_for_item(&mut self, item_bytes: usize, elem_size: usize) {
+        if !self.current.is_empty() && self.cur_elem_size != 0 && self.cur_elem_size != elem_size {
+            self.flush_current();
+        }
+
         if !self.current.is_empty() && self.current.len() + item_bytes > self.target_uncomp_bytes {
             self.flush_current();
+        }
+
+        if self.current.is_empty() {
+            self.cur_elem_size = elem_size;
         }
     }
 
     #[inline]
-    fn write_item<F>(&mut self, item_bytes: usize, write_fn: F) -> u32
+    fn write_item<F>(&mut self, item_bytes: usize, elem_size: usize, write_fn: F) -> (u32, u64)
     where
         F: FnOnce(&mut Vec<u8>),
     {
@@ -315,17 +392,26 @@ impl ContainerBuilder {
                 self.flush_current();
             }
             let block_id = self.current_block_id();
+            self.cur_elem_size = elem_size;
+
             self.current.reserve(item_bytes);
             write_fn(&mut self.current);
+
             self.flush_current();
-            return block_id;
+            return (block_id, 0);
         }
 
-        self.ensure_room_for_item(item_bytes);
+        self.ensure_room_for_item(item_bytes, elem_size);
+
+        debug_assert!(self.cur_elem_size == elem_size);
+
         let block_id = self.current_block_id();
+        let element_off = (self.current.len() / elem_size) as u64;
+
         self.current.reserve(item_bytes);
         write_fn(&mut self.current);
-        block_id
+
+        (block_id, element_off)
     }
 
     #[inline]
@@ -2111,26 +2197,16 @@ fn append_aligned_8(output: &mut Vec<u8>, bytes: &[u8]) -> u64 {
 }
 
 /// <binaryDataArray>
-#[inline]
 fn array_ref<'a>(ba: &'a BinaryDataArray) -> Option<ArrayRef<'a>> {
     let bin = ba.binary.as_ref()?;
 
-    match bda_declared_is_f64(ba) {
-        Some(false) => match bin {
-            BinaryData::F32(v) => Some(ArrayRef::F32(v.as_slice())),
-            BinaryData::F64(v) => Some(ArrayRef::F64(v.as_slice())),
-            _ => None,
-        },
-        Some(true) => match bin {
-            BinaryData::F64(v) => Some(ArrayRef::F64(v.as_slice())),
-            BinaryData::F32(v) => Some(ArrayRef::F32(v.as_slice())),
-            _ => None,
-        },
-        None => match bin {
-            BinaryData::F64(v) => Some(ArrayRef::F64(v.as_slice())),
-            BinaryData::F32(v) => Some(ArrayRef::F32(v.as_slice())),
-            _ => None,
-        },
+    match bin {
+        BinaryData::F16(v) => Some(ArrayRef::F16(v.as_slice())),
+        BinaryData::I16(v) => Some(ArrayRef::I16(v.as_slice())),
+        BinaryData::I32(v) => Some(ArrayRef::I32(v.as_slice())),
+        BinaryData::I64(v) => Some(ArrayRef::I64(v.as_slice())),
+        BinaryData::F32(v) => Some(ArrayRef::F32(v.as_slice())),
+        BinaryData::F64(v) => Some(ArrayRef::F64(v.as_slice())),
     }
 }
 
@@ -2235,45 +2311,6 @@ fn bda_declared_is_f64(ba: &BinaryDataArray) -> Option<bool> {
     }
 }
 
-#[inline]
-fn find_xy_ba<'a>(
-    list: Option<&'a BinaryDataArrayList>,
-    x_accession_tail: u32,
-    y_accession_tail: u32,
-) -> (Option<&'a BinaryDataArray>, Option<&'a BinaryDataArray>) {
-    let mut x: Option<&'a BinaryDataArray> = None;
-    let mut y: Option<&'a BinaryDataArray> = None;
-
-    if let Some(list) = list {
-        for ba in &list.binary_data_arrays {
-            let mut is_x = false;
-            let mut is_y = false;
-
-            for cv in &ba.cv_params {
-                let tail = parse_accession_tail(cv.accession.as_deref());
-                if tail == x_accession_tail {
-                    is_x = true;
-                } else if tail == y_accession_tail {
-                    is_y = true;
-                }
-            }
-
-            if x.is_none() && is_x {
-                x = Some(ba);
-            }
-            if y.is_none() && is_y {
-                y = Some(ba);
-            }
-
-            if x.is_some() && y.is_some() {
-                break;
-            }
-        }
-    }
-
-    (x, y)
-}
-
 /// <mzML>
 pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8> {
     assert!(compression_level <= 22);
@@ -2299,6 +2336,8 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
         ARRAY_FILTER_NONE
     };
 
+    let compression_codec: u8 = if compression_level == 0 { 0 } else { 1 };
+
     let run = &mzml.run;
 
     let spectra: &[Spectrum] = run
@@ -2316,90 +2355,52 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
     let spectrum_count = spectra.len() as u32;
     let chrom_count = chromatograms.len() as u32;
 
-    let mut spectrum_x_decl_f64: Option<bool> = None;
-    let mut spectrum_y_decl_f64: Option<bool> = None;
-    let mut spectrum_xy_cache: Vec<(ArrayRef<'_>, ArrayRef<'_>)> =
-        Vec::with_capacity(spectra.len());
-
-    for s in spectra {
-        let (xba, yba) = find_xy_ba(
-            s.binary_data_array_list.as_ref(),
-            ACC_MZ_ARRAY,
-            ACC_INTENSITY_ARRAY,
-        );
-
-        let x_arr = xba.and_then(array_ref).unwrap_or(ArrayRef::F32(&[]));
-        let y_arr = yba.and_then(array_ref).unwrap_or(ArrayRef::F32(&[]));
-
-        if let Some(xba) = xba {
-            let x_decl_f64 = bda_declared_is_f64(xba).unwrap_or(matches!(x_arr, ArrayRef::F64(_)));
-            merge_declared_width(&mut spectrum_x_decl_f64, x_decl_f64, "spectrum x");
+    #[inline]
+    fn array_type_tail(ba: &BinaryDataArray) -> u32 {
+        for cv in &ba.cv_params {
+            let tail = parse_accession_tail(cv.accession.as_deref());
+            if tail == ACC_MZ_ARRAY || tail == ACC_INTENSITY_ARRAY || tail == ACC_TIME_ARRAY {
+                return tail;
+            }
         }
-
-        if let Some(yba) = yba {
-            let y_decl_f64 = bda_declared_is_f64(yba).unwrap_or(matches!(y_arr, ArrayRef::F64(_)));
-            merge_declared_width(&mut spectrum_y_decl_f64, y_decl_f64, "spectrum y");
+        for cv in &ba.cv_params {
+            let tail = parse_accession_tail(cv.accession.as_deref());
+            if tail != 0 {
+                let name = cv.name.to_ascii_lowercase();
+                if name.contains(" array") {
+                    return tail;
+                }
+            }
         }
-
-        spectrum_xy_cache.push((x_arr, y_arr));
+        0
     }
 
-    let mut chrom_x_decl_f64: Option<bool> = None;
-    let mut chrom_y_decl_f64: Option<bool> = None;
-    let mut chrom_xy_cache: Vec<(ArrayRef<'_>, ArrayRef<'_>)> =
-        Vec::with_capacity(chromatograms.len());
-
-    for c in chromatograms {
-        let (xba, yba) = find_xy_ba(
-            c.binary_data_array_list.as_ref(),
-            ACC_TIME_ARRAY,
-            ACC_INTENSITY_ARRAY,
-        );
-
-        let x_arr = xba.and_then(array_ref).unwrap_or(ArrayRef::F32(&[]));
-        let y_arr = yba.and_then(array_ref).unwrap_or(ArrayRef::F32(&[]));
-
-        if let Some(xba) = xba {
-            let x_decl_f64 = bda_declared_is_f64(xba).unwrap_or(matches!(x_arr, ArrayRef::F64(_)));
-            merge_declared_width(&mut chrom_x_decl_f64, x_decl_f64, "chromatogram x");
+    #[inline]
+    fn store_as_f64(ba: &BinaryDataArray, arr: ArrayRef<'_>, f32_compress: bool) -> bool {
+        if f32_compress {
+            return false;
         }
-
-        if let Some(yba) = yba {
-            let y_decl_f64 = bda_declared_is_f64(yba).unwrap_or(matches!(y_arr, ArrayRef::F64(_)));
-            merge_declared_width(&mut chrom_y_decl_f64, y_decl_f64, "chromatogram y");
-        }
-
-        chrom_xy_cache.push((x_arr, y_arr));
+        bda_declared_is_f64(ba).unwrap_or(matches!(arr, ArrayRef::F64(_)))
     }
 
-    let spect_x_store_f64 = if f32_compress {
-        false
-    } else {
-        spectrum_x_decl_f64.unwrap_or(false)
-    };
-    let spect_y_store_f64 = if f32_compress {
-        false
-    } else {
-        spectrum_y_decl_f64.unwrap_or(false)
-    };
-    let chrom_x_store_f64 = if f32_compress {
-        false
-    } else {
-        chrom_x_decl_f64.unwrap_or(false)
-    };
-    let chrom_y_store_f64 = if f32_compress {
-        false
-    } else {
-        chrom_y_decl_f64.unwrap_or(false)
-    };
-
-    let spec_x_elem_size = elem_size(spect_x_store_f64);
-    let spec_y_elem_size = elem_size(spect_y_store_f64);
-    let chrom_x_elem_size = elem_size(chrom_x_store_f64);
-    let chrom_y_elem_size = elem_size(chrom_y_store_f64);
+    #[inline]
+    fn dtype_of(ba: &BinaryDataArray, arr: ArrayRef<'_>, f32_compress: bool) -> u8 {
+        match arr {
+            ArrayRef::F16(_) => DTYPE_F16,
+            ArrayRef::I16(_) => DTYPE_I16,
+            ArrayRef::I32(_) => DTYPE_I32,
+            ArrayRef::I64(_) => DTYPE_I64,
+            ArrayRef::F32(_) | ArrayRef::F64(_) => {
+                if store_as_f64(ba, arr, f32_compress) {
+                    DTYPE_F64
+                } else {
+                    DTYPE_F32
+                }
+            }
+        }
+    }
 
     let ref_groups = build_ref_group_map(mzml);
-
     let mut id_gen = NodeIdGen::new();
 
     let spectrum_list_owner_id: u32 = if run.spectrum_list.is_some() {
@@ -2419,7 +2420,6 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
     }
 
     let mut spec_i: usize = 0;
-
     let spectrum_meta = pack_meta_streaming(spectra, |meta, s| {
         let idx = spec_i;
         spec_i += 1;
@@ -2443,8 +2443,8 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
             &mut id_gen,
             ACC_MZ_ARRAY,
             ACC_INTENSITY_ARRAY,
-            spect_x_store_f64,
-            spect_y_store_f64,
+            false,
+            false,
             f32_compress,
         );
 
@@ -2452,7 +2452,6 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
     });
 
     let mut chrom_i: usize = 0;
-
     let chromatogram_meta = pack_meta_streaming(chromatograms, |meta, c| {
         let idx = chrom_i;
         chrom_i += 1;
@@ -2481,8 +2480,8 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
             &mut id_gen,
             ACC_TIME_ARRAY,
             ACC_INTENSITY_ARRAY,
-            chrom_x_store_f64,
-            chrom_y_store_f64,
+            false,
+            false,
             f32_compress,
         );
 
@@ -2524,188 +2523,237 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
         global_meta_bytes = compress_bytes(&global_meta_bytes, compression_level);
     }
 
-    let mut spec_x_builder = ContainerBuilder::new(
-        TARGET_BLOCK_UNCOMP_BYTES,
-        compression_level,
-        spec_x_elem_size,
-        do_shuffle,
-    );
-    let mut spec_y_builder = ContainerBuilder::new(
-        TARGET_BLOCK_UNCOMP_BYTES,
-        compression_level,
-        spec_y_elem_size,
-        do_shuffle,
-    );
-    let mut chrom_x_builder = ContainerBuilder::new(
-        TARGET_BLOCK_UNCOMP_BYTES,
-        compression_level,
-        chrom_x_elem_size,
-        do_shuffle,
-    );
-    let mut chrom_y_builder = ContainerBuilder::new(
-        TARGET_BLOCK_UNCOMP_BYTES,
-        compression_level,
-        chrom_y_elem_size,
-        do_shuffle,
-    );
+    let mut spec_entries_bytes = Vec::with_capacity(spectra.len() * 32);
+    let mut spec_arrayrefs_bytes = Vec::new();
 
-    let mut spec_index_bytes = Vec::with_capacity(spectra.len() * INDEX_ENTRY_SIZE);
-    let mut chrom_index_bytes = Vec::with_capacity(chromatograms.len() * INDEX_ENTRY_SIZE);
+    let mut chrom_entries_bytes = Vec::with_capacity(chromatograms.len() * 32);
+    let mut chrom_arrayrefs_bytes = Vec::new();
 
-    let mut spec_x_off_elems: u64 = 0;
-    let mut spec_y_off_elems: u64 = 0;
+    let mut spect_array_types: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut chrom_array_types: std::collections::HashSet<u32> = std::collections::HashSet::new();
 
-    for &(x, y) in &spectrum_xy_cache {
-        let x_len = x.len() as u32;
-        let y_len = y.len() as u32;
+    let mut spect_builder =
+        ContainerBuilder::new(TARGET_BLOCK_UNCOMP_BYTES, compression_level, do_shuffle);
+    let mut chrom_builder =
+        ContainerBuilder::new(TARGET_BLOCK_UNCOMP_BYTES, compression_level, do_shuffle);
 
-        let x_item_bytes = x.len() * spec_x_elem_size;
-        let y_item_bytes = y.len() * spec_y_elem_size;
+    let mut spec_a1_index: u32 = 0;
 
-        let x_block_id =
-            spec_x_builder.write_item(x_item_bytes, |buf| write_array(buf, x, spect_x_store_f64));
-        let y_block_id =
-            spec_y_builder.write_item(y_item_bytes, |buf| write_array(buf, y, spect_y_store_f64));
+    for s in spectra {
+        let arr_ref_start = spec_a1_index;
+        let mut arr_ref_count: u32 = 0;
+        let mut default_array_len: u32 = 0;
 
-        write_u64_le(&mut spec_index_bytes, spec_x_off_elems);
-        write_u64_le(&mut spec_index_bytes, spec_y_off_elems);
-        write_u32_le(&mut spec_index_bytes, x_len);
-        write_u32_le(&mut spec_index_bytes, y_len);
-        write_u32_le(&mut spec_index_bytes, x_block_id);
-        write_u32_le(&mut spec_index_bytes, y_block_id);
+        if let Some(bal) = s.binary_data_array_list.as_ref() {
+            for ba in &bal.binary_data_arrays {
+                let arr = match array_ref(ba) {
+                    Some(a) => a,
+                    None => continue,
+                };
 
-        spec_x_off_elems += x_len as u64;
-        spec_y_off_elems += y_len as u64;
+                let len = arr.len() as u32;
+                if len == 0 {
+                    continue;
+                }
+
+                if default_array_len == 0 {
+                    default_array_len = len;
+                }
+
+                let array_type = array_type_tail(ba);
+                if array_type != 0 {
+                    spect_array_types.insert(array_type);
+                }
+
+                let dtype = dtype_of(ba, arr, f32_compress);
+                let esz = dtype_elem_size(dtype);
+                let item_bytes = arr.len() * esz;
+
+                let (block_id, element_off) =
+                    spect_builder.write_item(item_bytes, esz, |buf| write_array(buf, arr, dtype));
+
+                write_u32_le(&mut spec_arrayrefs_bytes, array_type);
+                write_u32_le(&mut spec_arrayrefs_bytes, block_id);
+                write_u64_le(&mut spec_arrayrefs_bytes, element_off);
+                write_u32_le(&mut spec_arrayrefs_bytes, len);
+                spec_arrayrefs_bytes.push(dtype);
+                spec_arrayrefs_bytes.extend_from_slice(&[0u8; 11]);
+
+                spec_a1_index += 1;
+                arr_ref_count += 1;
+            }
+        }
+
+        write_u32_le(&mut spec_entries_bytes, arr_ref_start);
+        write_u32_le(&mut spec_entries_bytes, arr_ref_count);
+        write_u32_le(&mut spec_entries_bytes, default_array_len);
+        spec_entries_bytes.extend_from_slice(&[0u8; 20]);
     }
 
-    let mut chrom_x_off_elems: u64 = 0;
-    let mut chrom_y_off_elems: u64 = 0;
+    let mut chrom_b1_index: u32 = 0;
 
-    for &(x, y) in &chrom_xy_cache {
-        let x_len = x.len() as u32;
-        let y_len = y.len() as u32;
+    for c in chromatograms {
+        let arr_ref_start = chrom_b1_index;
+        let mut arr_ref_count: u32 = 0;
+        let mut default_array_len: u32 = 0;
 
-        let x_item_bytes = x.len() * chrom_x_elem_size;
-        let y_item_bytes = y.len() * chrom_y_elem_size;
+        if let Some(bal) = c.binary_data_array_list.as_ref() {
+            for ba in &bal.binary_data_arrays {
+                let arr = match array_ref(ba) {
+                    Some(a) => a,
+                    None => continue,
+                };
 
-        let x_block_id =
-            chrom_x_builder.write_item(x_item_bytes, |buf| write_array(buf, x, chrom_x_store_f64));
-        let y_block_id =
-            chrom_y_builder.write_item(y_item_bytes, |buf| write_array(buf, y, chrom_y_store_f64));
+                let len = arr.len() as u32;
+                if len == 0 {
+                    continue;
+                }
 
-        write_u64_le(&mut chrom_index_bytes, chrom_x_off_elems);
-        write_u64_le(&mut chrom_index_bytes, chrom_y_off_elems);
-        write_u32_le(&mut chrom_index_bytes, x_len);
-        write_u32_le(&mut chrom_index_bytes, y_len);
-        write_u32_le(&mut chrom_index_bytes, x_block_id);
-        write_u32_le(&mut chrom_index_bytes, y_block_id);
+                if default_array_len == 0 {
+                    default_array_len = len;
+                }
 
-        chrom_x_off_elems += x_len as u64;
-        chrom_y_off_elems += y_len as u64;
+                let array_type = array_type_tail(ba);
+                if array_type != 0 {
+                    chrom_array_types.insert(array_type);
+                }
+
+                let dtype = dtype_of(ba, arr, f32_compress);
+                let esz = dtype_elem_size(dtype);
+                let item_bytes = arr.len() * esz;
+
+                let (block_id, element_off) =
+                    chrom_builder.write_item(item_bytes, esz, |buf| write_array(buf, arr, dtype));
+
+                write_u32_le(&mut chrom_arrayrefs_bytes, array_type);
+                write_u32_le(&mut chrom_arrayrefs_bytes, block_id);
+                write_u64_le(&mut chrom_arrayrefs_bytes, element_off);
+                write_u32_le(&mut chrom_arrayrefs_bytes, len);
+                chrom_arrayrefs_bytes.push(dtype);
+                chrom_arrayrefs_bytes.extend_from_slice(&[0u8; 11]);
+
+                chrom_b1_index += 1;
+                arr_ref_count += 1;
+            }
+        }
+
+        write_u32_le(&mut chrom_entries_bytes, arr_ref_start);
+        write_u32_le(&mut chrom_entries_bytes, arr_ref_count);
+        write_u32_le(&mut chrom_entries_bytes, default_array_len);
+        chrom_entries_bytes.extend_from_slice(&[0u8; 20]);
     }
 
-    let (container_spect_x, block_count_spect_x) = spec_x_builder.finalize();
-    let (container_spect_y, block_count_spect_y) = spec_y_builder.finalize();
-    let (container_chrom_x, block_count_chrom_x) = chrom_x_builder.finalize();
-    let (container_chrom_y, block_count_chrom_y) = chrom_y_builder.finalize();
+    let (container_spect, block_count_spect) = spect_builder.finalize();
+    let (container_chrom, block_count_chrom) = chrom_builder.finalize();
 
     let mut output = Vec::with_capacity(
         HEADER_SIZE
-            + spec_index_bytes.len()
-            + chrom_index_bytes.len()
+            + spec_entries_bytes.len()
+            + spec_arrayrefs_bytes.len()
+            + chrom_entries_bytes.len()
+            + chrom_arrayrefs_bytes.len()
             + spectrum_meta_bytes.len()
             + chromatogram_meta_bytes.len()
             + global_meta_bytes.len()
-            + container_spect_x.len()
-            + container_spect_y.len()
-            + container_chrom_x.len()
-            + container_chrom_y.len()
+            + container_spect.len()
+            + container_chrom.len()
             + 64,
     );
 
     output.resize(HEADER_SIZE, 0);
 
-    let off_spec_index = HEADER_SIZE as u64;
-    output.extend_from_slice(&spec_index_bytes);
+    let off_spec_entries = append_aligned_8(&mut output, &spec_entries_bytes);
+    let len_spec_entries = spec_entries_bytes.len() as u64;
 
-    let off_chrom_index = output.len() as u64;
-    output.extend_from_slice(&chrom_index_bytes);
+    let off_spec_arrayrefs = append_aligned_8(&mut output, &spec_arrayrefs_bytes);
+    let len_spec_arrayrefs = spec_arrayrefs_bytes.len() as u64;
+
+    let off_chrom_entries = append_aligned_8(&mut output, &chrom_entries_bytes);
+    let len_chrom_entries = chrom_entries_bytes.len() as u64;
+
+    let off_chrom_arrayrefs = append_aligned_8(&mut output, &chrom_arrayrefs_bytes);
+    let len_chrom_arrayrefs = chrom_arrayrefs_bytes.len() as u64;
 
     let off_spec_meta = append_aligned_8(&mut output, &spectrum_meta_bytes);
+    let len_spec_meta = spectrum_meta_bytes.len() as u64;
+
     let off_chrom_meta = append_aligned_8(&mut output, &chromatogram_meta_bytes);
+    let len_chrom_meta = chromatogram_meta_bytes.len() as u64;
+
     let off_global_meta = append_aligned_8(&mut output, &global_meta_bytes);
+    let len_global_meta = global_meta_bytes.len() as u64;
 
-    let off_container_spect_x = append_aligned_8(&mut output, &container_spect_x);
-    let size_container_spect_x = container_spect_x.len() as u64;
+    let off_container_spect = append_aligned_8(&mut output, &container_spect);
+    let len_container_spect = container_spect.len() as u64;
 
-    let off_container_spect_y = append_aligned_8(&mut output, &container_spect_y);
-    let size_container_spect_y = container_spect_y.len() as u64;
-
-    let off_container_chrom_x = append_aligned_8(&mut output, &container_chrom_x);
-    let size_container_chrom_x = container_chrom_x.len() as u64;
-
-    let off_container_chrom_y = append_aligned_8(&mut output, &container_chrom_y);
-    let size_container_chrom_y = container_chrom_y.len() as u64;
+    let off_container_chrom = append_aligned_8(&mut output, &container_chrom);
+    let len_container_chrom = container_chrom.len() as u64;
 
     {
         let header = &mut output[0..HEADER_SIZE];
 
         header[0..4].copy_from_slice(b"B000");
         set_u8_at(header, 4, 0);
-        header[5] = 1;
-        header[6] = 0;
-        header[7] = 0;
 
-        set_u64_at(header, 8, off_spec_index);
-        set_u64_at(header, 16, off_chrom_index);
-        set_u64_at(header, 24, off_spec_meta);
-        set_u64_at(header, 32, off_chrom_meta);
-        set_u64_at(header, 40, off_global_meta);
+        set_u64_at(header, 8, off_spec_entries);
+        set_u64_at(header, 16, len_spec_entries);
 
-        set_u64_at(header, 48, size_container_spect_x);
-        set_u64_at(header, 56, off_container_spect_x);
+        set_u64_at(header, 24, off_spec_arrayrefs);
+        set_u64_at(header, 32, len_spec_arrayrefs);
 
-        set_u64_at(header, 64, size_container_spect_y);
-        set_u64_at(header, 72, off_container_spect_y);
+        set_u64_at(header, 40, off_chrom_entries);
+        set_u64_at(header, 48, len_chrom_entries);
 
-        set_u64_at(header, 80, size_container_chrom_x);
-        set_u64_at(header, 88, off_container_chrom_x);
+        set_u64_at(header, 56, off_chrom_arrayrefs);
+        set_u64_at(header, 64, len_chrom_arrayrefs);
 
-        set_u64_at(header, 96, size_container_chrom_y);
-        set_u64_at(header, 104, off_container_chrom_y);
+        set_u64_at(header, 72, off_spec_meta);
+        set_u64_at(header, 80, len_spec_meta);
 
-        set_u32_at(header, 112, spectrum_count);
-        set_u32_at(header, 116, chrom_count);
+        set_u64_at(header, 88, off_chrom_meta);
+        set_u64_at(header, 96, len_chrom_meta);
 
-        set_u32_at(header, 120, spec_meta_count);
-        set_u32_at(header, 124, spec_num_count);
-        set_u32_at(header, 128, spec_str_count);
+        set_u64_at(header, 104, off_global_meta);
+        set_u64_at(header, 112, len_global_meta);
 
-        set_u32_at(header, 132, chrom_meta_count);
-        set_u32_at(header, 136, chrom_num_count);
-        set_u32_at(header, 140, chrom_str_count);
+        set_u64_at(header, 120, off_container_spect);
+        set_u64_at(header, 128, len_container_spect);
 
-        set_u32_at(header, 144, global_meta_count);
-        set_u32_at(header, 148, global_num_count);
-        set_u32_at(header, 152, global_str_count);
+        set_u64_at(header, 136, off_container_chrom);
+        set_u64_at(header, 144, len_container_chrom);
 
-        set_u32_at(header, 156, block_count_spect_x);
-        set_u32_at(header, 160, block_count_spect_y);
-        set_u32_at(header, 164, block_count_chrom_x);
-        set_u32_at(header, 168, block_count_chrom_y);
+        set_u32_at(header, 152, block_count_spect);
+        set_u32_at(header, 156, block_count_chrom);
 
-        set_u8_at(header, 172, if compression_level == 0 { 0 } else { 1 });
-        set_u8_at(header, 173, if chrom_x_store_f64 { 2 } else { 1 });
-        set_u8_at(header, 174, if chrom_y_store_f64 { 2 } else { 1 });
-        set_u8_at(header, 175, if spect_x_store_f64 { 2 } else { 1 });
-        set_u8_at(header, 176, if spect_y_store_f64 { 2 } else { 1 });
+        set_u32_at(header, 160, spectrum_count);
+        set_u32_at(header, 164, chrom_count);
 
-        set_u8_at(header, 177, compression_level);
-        set_u8_at(header, 178, array_filter_id);
-        set_u64_at(header, 184, size_spec_meta_uncompressed);
-        set_u64_at(header, 192, size_chrom_meta_uncompressed);
-        set_u64_at(header, 200, size_global_meta_uncompressed);
+        set_u32_at(header, 168, spec_meta_count);
+        set_u32_at(header, 172, spec_num_count);
+        set_u32_at(header, 176, spec_str_count);
+
+        set_u32_at(header, 180, chrom_meta_count);
+        set_u32_at(header, 184, chrom_num_count);
+        set_u32_at(header, 188, chrom_str_count);
+
+        set_u32_at(header, 192, global_meta_count);
+        set_u32_at(header, 196, global_num_count);
+        set_u32_at(header, 200, global_str_count);
+
+        set_u32_at(header, 204, spect_array_types.len() as u32);
+        set_u32_at(header, 208, chrom_array_types.len() as u32);
+
+        set_u64_at(header, 216, TARGET_BLOCK_UNCOMP_BYTES as u64);
+
+        set_u8_at(header, 224, compression_codec);
+        set_u8_at(header, 225, compression_level);
+        set_u8_at(header, 226, array_filter_id);
+
+        set_u64_at(header, 232, size_spec_meta_uncompressed);
+        set_u64_at(header, 240, size_chrom_meta_uncompressed);
+        set_u64_at(header, 248, size_global_meta_uncompressed);
     }
+
     output.extend_from_slice(&FILE_TRAILER);
     output
 }

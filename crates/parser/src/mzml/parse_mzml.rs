@@ -2363,6 +2363,24 @@ fn parse_binary_data_array<R: BufRead>(
             a.binary = Some(BinaryData::F32(out));
         }
 
+        NumericType::Float16 => {
+            let elem = 2usize;
+            let usable = bytes.len() - (bytes.len() % elem);
+            let avail = usable / elem;
+            let want = a.array_length.unwrap_or(avail);
+            let n = want.min(avail);
+
+            if n == 0 {
+                return Ok(a);
+            }
+
+            let mut out = Vec::with_capacity(n);
+            for c in bytes[..n * elem].chunks_exact(elem) {
+                out.push(u16::from_le_bytes(c.try_into().unwrap()));
+            }
+            a.binary = Some(BinaryData::F16(out));
+        }
+
         NumericType::Int64 => {
             let elem = 8usize;
             let usable = bytes.len() - (bytes.len() % elem);

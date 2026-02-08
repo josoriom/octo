@@ -22,7 +22,7 @@ fn parse_global_metadata_from_test_file() -> Vec<Metadatum> {
     let header = parse_header(&bytes).expect("parse_header failed");
 
     let start = header.off_global_meta as usize;
-    let end = header.off_container_spect_x as usize;
+    let end = start + header.len_global_meta as usize;
 
     assert!(start < end, "invalid global metadata offsets: start >= end");
     assert!(
