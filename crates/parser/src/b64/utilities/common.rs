@@ -317,6 +317,7 @@ pub fn decoded_len(bda: &BinaryDataArray) -> usize {
         Some(bin) => match bin {
             BinaryData::F32(v) => v.len(),
             BinaryData::F64(v) => v.len(),
+            BinaryData::F16(v) => v.len(),
             BinaryData::I64(v) => v.len(),
             BinaryData::I32(v) => v.len(),
             BinaryData::I16(v) => v.len(),

@@ -773,6 +773,7 @@ fn binary_len(b: &BinaryData) -> usize {
     match b {
         BinaryData::F64(v) => v.len(),
         BinaryData::F32(v) => v.len(),
+        BinaryData::F16(v) => v.len(),
         BinaryData::I64(v) => v.len(),
         BinaryData::I32(v) => v.len(),
         BinaryData::I16(v) => v.len(),
@@ -1374,6 +1375,7 @@ fn write_binary_data_array(
         let ok = match (binary, nt) {
             (BinaryData::F64(_), NumericType::Float64) => true,
             (BinaryData::F32(_), NumericType::Float32) => true,
+            (BinaryData::F16(_), NumericType::Float16) => true,
             (BinaryData::I64(_), NumericType::Int64) => true,
             (BinaryData::I32(_), NumericType::Int32) => true,
             (BinaryData::I16(_), NumericType::Int16) => true,
@@ -1398,6 +1400,13 @@ fn write_binary_data_array(
                 bytes.extend_from_slice(&x.to_le_bytes());
             }
             (bytes, v.len(), NumericType::Float32)
+        }
+        BinaryData::F16(v) => {
+            let mut bytes = Vec::with_capacity(v.len() * 2);
+            for &x in v {
+                bytes.extend_from_slice(&x.to_le_bytes());
+            }
+            (bytes, v.len(), NumericType::Float16)
         }
         BinaryData::I64(v) => {
             let mut bytes = Vec::with_capacity(v.len() * 8);
