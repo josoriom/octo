@@ -13,17 +13,17 @@ pub fn parse_metadata(
     meta_count: u32,
     num_count: u32,
     str_count: u32,
-    codec_id: u8,
-    expected: usize,
+    compression_codec: u8,
+    expected_uncompressed_bytes: usize,
 ) -> Result<Vec<Metadatum>, String> {
     let owned;
-    let bytes = match codec_id {
+    let bytes = match compression_codec {
         HDR_CODEC_NONE => bytes,
         HDR_CODEC_ZSTD => {
-            owned = decompress_zstd_allow_aligned_padding(bytes, expected)?;
+            owned = decompress_zstd_allow_aligned_padding(bytes, expected_uncompressed_bytes)?;
             owned.as_slice()
         }
-        other => return Err(format!("unsupported metadata codec_id={other}")),
+        other => return Err(format!("unsupported compression_codec={other}")),
     };
 
     let item_count_usize = item_count as usize;
@@ -33,6 +33,7 @@ pub fn parse_metadata(
 
     let mut pos = 0usize;
 
+    // PackedMeta layout:
     let ci = read_u32_vec(bytes, &mut pos, item_count_usize + 1)?;
     let moi = read_u32_vec(bytes, &mut pos, meta_count_usize)?;
     let mpi = read_u32_vec(bytes, &mut pos, meta_count_usize)?;
@@ -52,22 +53,25 @@ pub fn parse_metadata(
     let vs_needed = vs_len_bytes(vk, &vi, &voff, &vlen)?;
     let vs = take(bytes, &mut pos, vs_needed, "string values")?;
 
-    if codec_id == HDR_CODEC_NONE {
+    if compression_codec == HDR_CODEC_ZSTD {
+        if pos != bytes.len() {
+            return Err("trailing bytes in decompressed metadata section".to_string());
+        }
+    } else {
         let trailing = &bytes[pos..];
         if trailing.len() > 7 || trailing.iter().any(|&b| b != 0) {
             return Err("trailing bytes in metadata section".to_string());
         }
-    } else if pos != bytes.len() {
-        return Err("trailing bytes in decompressed metadata section".to_string());
+        let _ = expected_uncompressed_bytes;
     }
 
+    // CI checks
     if ci.is_empty() || ci[0] != 0 {
         return Err("CI[0] must be 0".to_string());
     }
     if ci[item_count_usize] as usize != meta_count_usize {
         return Err("CI[last] must equal meta_count".to_string());
     }
-
     let mut prev = 0u32;
     for &x in &ci {
         if x < prev || (x as usize) > meta_count_usize {
@@ -112,7 +116,7 @@ pub fn parse_metadata(
                     }
                 }
                 2 => MetadatumValue::Empty,
-                _ => MetadatumValue::Empty,
+                other => return Err(format!("invalid value kind VK={other}")),
             };
 
             let accession = format_accession(mri[j], man[j]);

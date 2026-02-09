@@ -93,10 +93,10 @@ fn first_spectrum_scan_list_cv_params_item_by_item() {
         header.spectrum_count,
         2,
         header.spec_meta_count,
-        header.spec_num_count,
-        header.spec_str_count,
-        header.codec_id,
-        header.size_spec_meta_uncompressed,
+        header.spec_meta_num_count,
+        header.spec_meta_str_count,
+        header.compression_codec,
+        header.spec_meta_uncompressed_bytes,
         "spectra",
     );
 
@@ -188,10 +188,10 @@ fn second_spectrum_scan_list_cv_params_item_by_item() {
         header.spectrum_count,
         2,
         header.spec_meta_count,
-        header.spec_num_count,
-        header.spec_str_count,
-        header.codec_id,
-        header.size_spec_meta_uncompressed,
+        header.spec_meta_num_count,
+        header.spec_meta_str_count,
+        header.compression_codec,
+        header.spec_meta_uncompressed_bytes,
         "spectra",
     );
 

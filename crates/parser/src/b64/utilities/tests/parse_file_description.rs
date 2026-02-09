@@ -22,7 +22,10 @@ fn parse_global_metadata_from_test_file() -> Vec<Metadatum> {
     let header = parse_header(&bytes).expect("parse_header failed");
 
     let start = header.off_global_meta as usize;
-    let end = header.off_container_spect_x as usize;
+    let len = header.len_global_meta as usize;
+    let end = start
+        .checked_add(len)
+        .unwrap_or_else(|| panic!("invalid global metadata offsets: end overflow"));
 
     assert!(start < end, "invalid global metadata offsets: start >= end");
     assert!(
@@ -32,18 +35,16 @@ fn parse_global_metadata_from_test_file() -> Vec<Metadatum> {
 
     let slice = &bytes[start..end];
 
-    let meta = parse_global_metadata(
+    parse_global_metadata(
         slice,
         0,
         header.global_meta_count,
-        header.global_num_count,
-        header.global_str_count,
-        header.codec_id,
-        header.size_global_meta_uncompressed,
+        header.global_meta_num_count,
+        header.global_meta_str_count,
+        header.compression_codec,
+        header.global_meta_uncompressed_bytes,
     )
-    .expect("parse_global_metadata failed");
-
-    meta
+    .expect("parse_global_metadata failed")
 }
 
 fn must_obj<'a>(v: &'a Value, key: &str) -> &'a serde_json::Map<String, Value> {

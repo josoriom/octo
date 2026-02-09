@@ -448,12 +448,25 @@ pub struct BinaryDataArrayList {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum NumericType {
+    Float16,
     Float32,
     Float64,
-    Int16,
-    Int32,
     Int64,
+    Int32,
+    Int16,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BinaryData {
+    F64(Vec<f64>),
+    F32(Vec<f32>),
+    F16(Vec<u16>),
+    I64(Vec<i64>),
+    I32(Vec<i32>),
+    I16(Vec<i16>),
 }
 
 /// <binaryDataArray>
@@ -469,15 +482,6 @@ pub struct BinaryDataArray {
 
     pub numeric_type: Option<NumericType>,
     pub binary: Option<BinaryData>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum BinaryData {
-    F32(Vec<f32>),
-    F64(Vec<f64>),
-    I64(Vec<i64>),
-    I32(Vec<i32>),
-    I16(Vec<i16>),
 }
 
 /// <chromatogramList>
