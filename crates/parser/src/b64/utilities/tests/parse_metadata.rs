@@ -71,10 +71,10 @@ fn check_first_spectrum() {
         header.spectrum_count,
         2,
         header.spec_meta_count,
-        header.spec_num_count,
-        header.spec_str_count,
-        header.codec_id,
-        header.size_spec_meta_uncompressed,
+        header.spec_meta_num_count,
+        header.spec_meta_str_count,
+        header.compression_codec,
+        header.spec_meta_uncompressed_bytes,
         "spectra",
     );
 
@@ -285,10 +285,10 @@ fn check_second_spectrum() {
         header.spectrum_count,
         2,
         header.spec_meta_count,
-        header.spec_num_count,
-        header.spec_str_count,
-        header.codec_id,
-        header.size_spec_meta_uncompressed,
+        header.spec_meta_num_count,
+        header.spec_meta_str_count,
+        header.compression_codec,
+        header.spec_meta_uncompressed_bytes,
         "spectra",
     );
 
@@ -632,10 +632,10 @@ fn check_first_chromatogram() {
         header.chrom_count,
         2,
         header.chrom_meta_count,
-        header.chrom_num_count,
-        header.chrom_str_count,
-        header.codec_id,
-        header.size_chrom_meta_uncompressed,
+        header.chrom_meta_num_count,
+        header.chrom_meta_str_count,
+        header.compression_codec,
+        header.chrom_meta_uncompressed_bytes,
         "chromatograms",
     );
     assert_eq!(chrom_meta.len(), 38);
@@ -696,10 +696,10 @@ fn check_second_chromatogram() {
         header.chrom_count,
         2,
         header.chrom_meta_count,
-        header.chrom_num_count,
-        header.chrom_str_count,
-        header.codec_id,
-        header.size_chrom_meta_uncompressed,
+        header.chrom_meta_num_count,
+        header.chrom_meta_str_count,
+        header.compression_codec,
+        header.chrom_meta_uncompressed_bytes,
         "chromatograms",
     );
     assert_eq!(chrom_meta.len(), 38);

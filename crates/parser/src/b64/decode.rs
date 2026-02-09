@@ -11,7 +11,8 @@ use crate::{
     mzml::{attr_meta::*, schema::TagId, structs::*},
 };
 
-pub const INDEX_ENTRY_SIZE: usize = 32;
+pub const A0_ENTRY_SIZE: u64 = 16;
+pub const A1_ENTRY_SIZE: u64 = 32;
 const BLOCK_DIR_ENTRY_SIZE: usize = 32;
 
 const ARRAY_FILTER_BYTE_SHUFFLE: u8 = 1;
@@ -51,29 +52,27 @@ pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
 
 #[inline]
 fn parse_run(bytes: &[u8], header: &Header, global_meta: &[Metadatum]) -> Result<Run, String> {
-    let spec_meta = parse_metadata_section(
-        bytes,
-        header,
-        header.off_spec_meta,
-        header.off_chrom_meta,
+    let spec_meta = parse_metadata(
+        &bytes
+            [header.off_spec_meta as usize..(header.off_spec_meta + header.len_spec_meta) as usize],
         header.spectrum_count,
         header.spec_meta_count,
-        header.spec_num_count,
-        header.spec_str_count,
-        header.size_spec_meta_uncompressed,
-    );
+        header.spec_meta_num_count,
+        header.spec_meta_str_count,
+        header.compression_codec,
+        header.spec_meta_uncompressed_bytes as usize,
+    )?;
 
-    let chrom_meta = parse_metadata_section(
-        bytes,
-        header,
-        header.off_chrom_meta,
-        header.off_global_meta,
+    let chrom_meta = parse_metadata(
+        &bytes[header.off_chrom_meta as usize
+            ..(header.off_chrom_meta + header.len_chrom_meta) as usize],
         header.chrom_count,
         header.chrom_meta_count,
-        header.chrom_num_count,
-        header.chrom_str_count,
-        header.size_chrom_meta_uncompressed,
-    );
+        header.chrom_meta_num_count,
+        header.chrom_meta_str_count,
+        header.compression_codec,
+        header.chrom_meta_uncompressed_bytes as usize,
+    )?;
 
     let run_child_index = ChildIndex::new(global_meta);
 
@@ -376,45 +375,12 @@ fn ms_numeric_param(accession_tail: u32) -> CvParam {
     }
 }
 
-fn parse_metadata_section(
-    bytes: &[u8],
-    header: &Header,
-    start_off: u64,
-    end_off: u64,
-    item_count: u32,
-    meta_count: u32,
-    num_count: u32,
-    str_count: u32,
-    expected_uncompressed: u64,
-) -> Vec<Metadatum> {
-    let c0 = start_off as usize;
-    let c1 = end_off as usize;
-
-    assert!(c0 < c1, "invalid metadata offsets: start >= end");
-    assert!(
-        c1 <= bytes.len(),
-        "invalid metadata offsets: end out of bounds"
-    );
-
-    let slice = &bytes[c0..c1];
-
-    let expected = usize::try_from(expected_uncompressed).expect("metadata expected size overflow");
-
-    parse_metadata(
-        slice,
-        item_count,
-        meta_count,
-        num_count,
-        str_count,
-        header.codec_id,
-        expected,
-    )
-    .expect("parse_metadata failed")
-}
-
 fn parse_global_metadata_section(bytes: &[u8], header: &Header) -> Result<Vec<Metadatum>, String> {
-    let start = header.off_global_meta as usize;
-    let len = header.len_global_meta as usize;
+    let start = usize::try_from(header.off_global_meta)
+        .map_err(|_| "global metadata offsets overflow".to_string())?;
+    let len = usize::try_from(header.len_global_meta)
+        .map_err(|_| "global metadata length overflow".to_string())?;
+
     let end = start
         .checked_add(len)
         .ok_or_else(|| "global metadata end overflow".to_string())?;
@@ -422,20 +388,19 @@ fn parse_global_metadata_section(bytes: &[u8], header: &Header) -> Result<Vec<Me
     if start >= end {
         return Err("invalid global metadata offsets: start >= end".to_string());
     }
-    if end > bytes.len() {
-        return Err("invalid global metadata offsets: end out of bounds".to_string());
-    }
 
-    let slice = &bytes[start..end];
+    let slice = bytes
+        .get(start..end)
+        .ok_or_else(|| "invalid global metadata offsets: end out of bounds".to_string())?;
 
     parse_global_metadata(
         slice,
         0,
         header.global_meta_count,
-        header.global_num_count,
-        header.global_str_count,
-        header.codec_id,
-        header.size_global_meta_uncompressed,
+        header.global_meta_num_count,
+        header.global_meta_str_count,
+        header.compression_codec,
+        header.global_meta_uncompressed_bytes,
     )
 }
 
@@ -523,31 +488,31 @@ fn parse_binaries(
     #[inline]
     fn dtype_to_layout(dtype: u8, field: &'static str) -> Result<(usize, NumericType), String> {
         match dtype {
-            1 => Ok((4, NumericType::Float32)),
-            2 => Ok((8, NumericType::Float64)),
+            1 => Ok((8, NumericType::Float64)),
+            2 => Ok((4, NumericType::Float32)),
             3 => Ok((2, NumericType::Float16)),
             4 => Ok((2, NumericType::Int16)),
             5 => Ok((4, NumericType::Int32)),
             6 => Ok((8, NumericType::Int64)),
             _ => Err(format!(
-                "{field}: invalid dtype {dtype} (expected 1=f32, 2=f64, 3=f16, 4=i16, 5=i32, 6=i64)"
+                "{field}: invalid dtype {dtype} (expected 1=f64, 2=f32, 3=f16, 4=i16, 5=i32, 6=i64)"
             )),
         }
     }
 
     #[derive(Clone, Copy)]
     struct A0Entry {
-        a1_start: u32,
-        a1_count: u32,
+        a1_start: u64,
+        a1_count: u64,
     }
 
     #[derive(Clone, Copy)]
     struct A1Ref {
         array_type: u32,
+        dtype: u8,
         block_id: u32,
         element_off: u64,
-        len: u32,
-        dtype: u8,
+        len_elements: u64,
     }
 
     #[derive(Clone, Copy)]
@@ -566,8 +531,9 @@ fn parse_binaries(
         field: &'static str,
     ) -> Result<Vec<A0Entry>, String> {
         let expected = (item_count as u64)
-            .checked_mul(INDEX_ENTRY_SIZE as u64)
+            .checked_mul(A0_ENTRY_SIZE as u64)
             .ok_or_else(|| format!("{field}: size overflow"))?;
+
         if len != expected {
             return Err(format!(
                 "{field}: unexpected byte length (got={len}, expected={expected})"
@@ -579,12 +545,11 @@ fn parse_binaries(
 
         let mut out = Vec::with_capacity(item_count as usize);
         for _ in 0..item_count {
-            let a1_start = read_u32_le_at(raw, &mut pos, "a1_start")?;
-            let a1_count = read_u32_le_at(raw, &mut pos, "a1_count")?;
-            let _default_len = read_u32_le_at(raw, &mut pos, "default_array_len")?;
-            let _ = take(raw, &mut pos, 20, "reserved")?;
+            let a1_start = read_u64_le_at(raw, &mut pos, "arr_ref_start")?;
+            let a1_count = read_u64_le_at(raw, &mut pos, "arr_ref_count")?;
             out.push(A0Entry { a1_start, a1_count });
         }
+
         Ok(out)
     }
 
@@ -595,30 +560,35 @@ fn parse_binaries(
         len: u64,
         field: &'static str,
     ) -> Result<Vec<A1Ref>, String> {
-        if len % (INDEX_ENTRY_SIZE as u64) != 0 {
-            return Err(format!("{field}: len not multiple of {INDEX_ENTRY_SIZE}"));
+        let entry = A1_ENTRY_SIZE;
+
+        if len % entry != 0 {
+            return Err(format!("{field}: len not multiple of {entry}"));
         }
+
         let raw = slice_at(bytes, off, len, field)?;
         let mut pos = 0usize;
 
-        let count = (len / (INDEX_ENTRY_SIZE as u64)) as usize;
+        let count = usize::try_from(len / entry).map_err(|_| format!("{field}: count overflow"))?;
         let mut out = Vec::with_capacity(count);
 
         for _ in 0..count {
-            let array_type = read_u32_le_at(raw, &mut pos, "array_type")?;
+            let element_off = read_u64_le_at(raw, &mut pos, "off_element")?;
+            let len_elements = read_u64_le_at(raw, &mut pos, "len_element")?;
             let block_id = read_u32_le_at(raw, &mut pos, "block_id")?;
-            let element_off = read_u64_le_at(raw, &mut pos, "element_off")?;
-            let len = read_u32_le_at(raw, &mut pos, "len")?;
+            let array_type = read_u32_le_at(raw, &mut pos, "array_type")?;
             let dtype = take(raw, &mut pos, 1, "dtype")?[0];
-            let _ = take(raw, &mut pos, 11, "reserved")?;
+            let _ = take(raw, &mut pos, 7, "reserved")?;
+
             out.push(A1Ref {
                 array_type,
+                dtype,
                 block_id,
                 element_off,
-                len,
-                dtype,
+                len_elements,
             });
         }
+
         Ok(out)
     }
 
@@ -794,7 +764,7 @@ fn parse_binaries(
         block_elem_sizes: &mut [usize],
         block_id: u32,
         element_off: u64,
-        len: u32,
+        len_elements: u64,
         elem_size: usize,
         nt: NumericType,
         compression_level: u8,
@@ -819,7 +789,8 @@ fn parse_binaries(
 
         let off_elems =
             usize::try_from(element_off).map_err(|_| format!("{field}: element_off overflow"))?;
-        let len_elems = usize::try_from(len).map_err(|_| format!("{field}: len overflow"))?;
+        let len_elems =
+            usize::try_from(len_elements).map_err(|_| format!("{field}: len_element overflow"))?;
 
         let off_bytes = off_elems
             .checked_mul(elem_size)
@@ -912,8 +883,9 @@ fn parse_binaries(
     for i in 0..spec_count {
         let e = spec_entries[i];
 
-        let start = e.a1_start as usize;
-        let count = e.a1_count as usize;
+        let start = usize::try_from(e.a1_start).map_err(|_| "A0: a1_start overflow".to_string())?;
+        let count = usize::try_from(e.a1_count).map_err(|_| "A0: a1_count overflow".to_string())?;
+
         let end = start
             .checked_add(count)
             .ok_or_else(|| "A0: a1 range overflow".to_string())?;
@@ -935,7 +907,7 @@ fn parse_binaries(
                 &mut block_elem_spect,
                 r.block_id,
                 r.element_off,
-                r.len,
+                r.len_elements,
                 elem_size,
                 nt,
                 header.compression_level,
@@ -954,8 +926,9 @@ fn parse_binaries(
     for i in 0..chrom_count {
         let e = chrom_entries[i];
 
-        let start = e.a1_start as usize;
-        let count = e.a1_count as usize;
+        let start = usize::try_from(e.a1_start).map_err(|_| "B0: b1_start overflow".to_string())?;
+        let count = usize::try_from(e.a1_count).map_err(|_| "B0: b1_count overflow".to_string())?;
+
         let end = start
             .checked_add(count)
             .ok_or_else(|| "B0: b1 range overflow".to_string())?;
@@ -977,7 +950,7 @@ fn parse_binaries(
                 &mut block_elem_chrom,
                 r.block_id,
                 r.element_off,
-                r.len,
+                r.len_elements,
                 elem_size,
                 nt,
                 header.compression_level,

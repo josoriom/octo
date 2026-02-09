@@ -32,8 +32,10 @@ fn parse_metadata_section_from_test_file(
 ) -> Vec<Metadatum> {
     let bytes = read_bytes(PATH);
 
-    let c0 = start_off as usize;
-    let c1 = end_off as usize;
+    let c0 = usize::try_from(start_off)
+        .unwrap_or_else(|_| panic!("invalid metadata offsets for {section_name}: start overflow"));
+    let c1 = usize::try_from(end_off)
+        .unwrap_or_else(|_| panic!("invalid metadata offsets for {section_name}: end overflow"));
 
     assert!(
         c0 < c1,
@@ -51,19 +53,13 @@ fn parse_metadata_section_from_test_file(
 
     let slice = &bytes[c0..c1];
 
-    let expected = if codec_id == crate::b64::utilities::parse_metadata::HDR_CODEC_ZSTD {
-        usize::try_from(expected_uncompressed)
-            .unwrap_or_else(|_| panic!("{section_name}: expected_uncompressed overflow"))
-    } else {
-        0
-    };
+    let expected = usize::try_from(expected_uncompressed)
+        .unwrap_or_else(|_| panic!("{section_name}: expected_uncompressed overflow"));
 
-    let meta = parse_metadata(
+    parse_metadata(
         slice, item_count, meta_count, num_count, str_count, codec_id, expected,
     )
-    .expect("parse_metadata failed");
-
-    meta
+    .unwrap_or_else(|e| panic!("{section_name}: parse_metadata failed: {e}"))
 }
 
 fn assert_cv_param(
@@ -96,10 +92,10 @@ fn first_chrom_cv_params_item_by_item() {
         header.chrom_count,
         2,
         header.chrom_meta_count,
-        header.chrom_num_count,
-        header.chrom_str_count,
-        header.codec_id,
-        header.size_chrom_meta_uncompressed,
+        header.chrom_meta_num_count,
+        header.chrom_meta_str_count,
+        header.compression_codec,
+        header.chrom_meta_uncompressed_bytes,
         "chromatograms",
     );
 
@@ -312,10 +308,10 @@ fn second_chrom_cv_params_item_by_item() {
         header.chrom_count,
         2,
         header.chrom_meta_count,
-        header.chrom_num_count,
-        header.chrom_str_count,
-        header.codec_id,
-        header.size_chrom_meta_uncompressed,
+        header.chrom_meta_num_count,
+        header.chrom_meta_str_count,
+        header.compression_codec,
+        header.chrom_meta_uncompressed_bytes,
         "chromatograms",
     );
 
@@ -527,10 +523,10 @@ fn first_spectrum_cv_params_item_by_item() {
         header.spectrum_count,
         2,
         header.spec_meta_count,
-        header.spec_num_count,
-        header.spec_str_count,
-        header.codec_id,
-        header.size_spec_meta_uncompressed,
+        header.spec_meta_num_count,
+        header.spec_meta_str_count,
+        header.compression_codec,
+        header.spec_meta_uncompressed_bytes,
         "spectra",
     );
 
@@ -689,10 +685,10 @@ fn second_spectrum_cv_params_item_by_item() {
         header.spectrum_count,
         2,
         header.spec_meta_count,
-        header.spec_num_count,
-        header.spec_str_count,
-        header.codec_id,
-        header.size_spec_meta_uncompressed,
+        header.spec_meta_num_count,
+        header.spec_meta_str_count,
+        header.compression_codec,
+        header.spec_meta_uncompressed_bytes,
         "spectra",
     );
 

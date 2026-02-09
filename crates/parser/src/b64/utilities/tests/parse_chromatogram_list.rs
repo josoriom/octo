@@ -89,15 +89,14 @@ fn parse_chromatogram_list_from_test_file() -> ChromatogramList {
         header.chrom_count,
         2,
         header.chrom_meta_count,
-        header.chrom_num_count,
-        header.chrom_str_count,
-        header.codec_id,
-        header.size_chrom_meta_uncompressed,
+        header.chrom_meta_num_count,
+        header.chrom_meta_str_count,
+        header.compression_codec,
+        header.chrom_meta_uncompressed_bytes,
         "chromatograms",
     );
 
     let meta_ref: Vec<&Metadatum> = meta.iter().collect();
-
     let child_index = ChildIndex::new(&meta);
 
     parse_chromatogram_list(&meta_ref, &child_index).expect("parse_chromatogram_list returned None")

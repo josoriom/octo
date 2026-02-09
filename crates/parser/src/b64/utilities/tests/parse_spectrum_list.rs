@@ -70,10 +70,10 @@ fn parse_spectrum_list_from_test_file() -> SpectrumList {
         header.spectrum_count,
         2,
         header.spec_meta_count,
-        header.spec_num_count,
-        header.spec_str_count,
-        header.codec_id,
-        header.size_spec_meta_uncompressed,
+        header.spec_meta_num_count,
+        header.spec_meta_str_count,
+        header.compression_codec,
+        header.spec_meta_uncompressed_bytes,
         "spectra",
     );
 

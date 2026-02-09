@@ -2327,6 +2327,15 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
         }
     }
 
+    #[inline]
+    fn entry_dtype_from_writer_dtype(writer_dtype: u8) -> u8 {
+        match writer_dtype {
+            1 => 2,
+            2 => 1,
+            _ => writer_dtype,
+        }
+    }
+
     let compress_meta = compression_level != 0;
     let do_shuffle = compress_meta;
 
@@ -2523,10 +2532,10 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
         global_meta_bytes = compress_bytes(&global_meta_bytes, compression_level);
     }
 
-    let mut spec_entries_bytes = Vec::with_capacity(spectra.len() * 32);
+    let mut spec_entries_bytes = Vec::with_capacity(spectra.len() * 16);
     let mut spec_arrayrefs_bytes = Vec::new();
 
-    let mut chrom_entries_bytes = Vec::with_capacity(chromatograms.len() * 32);
+    let mut chrom_entries_bytes = Vec::with_capacity(chromatograms.len() * 16);
     let mut chrom_arrayrefs_bytes = Vec::new();
 
     let mut spect_array_types: std::collections::HashSet<u32> = std::collections::HashSet::new();
@@ -2537,12 +2546,11 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
     let mut chrom_builder =
         ContainerBuilder::new(TARGET_BLOCK_UNCOMP_BYTES, compression_level, do_shuffle);
 
-    let mut spec_a1_index: u32 = 0;
+    let mut spec_a1_index: u64 = 0;
 
     for s in spectra {
         let arr_ref_start = spec_a1_index;
-        let mut arr_ref_count: u32 = 0;
-        let mut default_array_len: u32 = 0;
+        let mut arr_ref_count: u64 = 0;
 
         if let Some(bal) = s.binary_data_array_list.as_ref() {
             for ba in &bal.binary_data_arrays {
@@ -2551,13 +2559,8 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
                     None => continue,
                 };
 
-                let len = arr.len() as u32;
-                if len == 0 {
+                if arr.len() == 0 {
                     continue;
-                }
-
-                if default_array_len == 0 {
-                    default_array_len = len;
                 }
 
                 let array_type = array_type_tail(ba);
@@ -2565,37 +2568,38 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
                     spect_array_types.insert(array_type);
                 }
 
-                let dtype = dtype_of(ba, arr, f32_compress);
-                let esz = dtype_elem_size(dtype);
+                let writer_dtype = dtype_of(ba, arr, f32_compress);
+                let entry_dtype = entry_dtype_from_writer_dtype(writer_dtype);
+
+                let esz = dtype_elem_size(writer_dtype);
                 let item_bytes = arr.len() * esz;
 
-                let (block_id, element_off) =
-                    spect_builder.write_item(item_bytes, esz, |buf| write_array(buf, arr, dtype));
+                let (block_id, element_off) = spect_builder
+                    .write_item(item_bytes, esz, |buf| write_array(buf, arr, writer_dtype));
 
-                write_u32_le(&mut spec_arrayrefs_bytes, array_type);
-                write_u32_le(&mut spec_arrayrefs_bytes, block_id);
+                let len_elements = arr.len() as u64;
+
                 write_u64_le(&mut spec_arrayrefs_bytes, element_off);
-                write_u32_le(&mut spec_arrayrefs_bytes, len);
-                spec_arrayrefs_bytes.push(dtype);
-                spec_arrayrefs_bytes.extend_from_slice(&[0u8; 11]);
+                write_u64_le(&mut spec_arrayrefs_bytes, len_elements);
+                write_u32_le(&mut spec_arrayrefs_bytes, block_id);
+                write_u32_le(&mut spec_arrayrefs_bytes, array_type);
+                spec_arrayrefs_bytes.push(entry_dtype);
+                spec_arrayrefs_bytes.extend_from_slice(&[0u8; 7]);
 
                 spec_a1_index += 1;
                 arr_ref_count += 1;
             }
         }
 
-        write_u32_le(&mut spec_entries_bytes, arr_ref_start);
-        write_u32_le(&mut spec_entries_bytes, arr_ref_count);
-        write_u32_le(&mut spec_entries_bytes, default_array_len);
-        spec_entries_bytes.extend_from_slice(&[0u8; 20]);
+        write_u64_le(&mut spec_entries_bytes, arr_ref_start);
+        write_u64_le(&mut spec_entries_bytes, arr_ref_count);
     }
 
-    let mut chrom_b1_index: u32 = 0;
+    let mut chrom_b1_index: u64 = 0;
 
     for c in chromatograms {
         let arr_ref_start = chrom_b1_index;
-        let mut arr_ref_count: u32 = 0;
-        let mut default_array_len: u32 = 0;
+        let mut arr_ref_count: u64 = 0;
 
         if let Some(bal) = c.binary_data_array_list.as_ref() {
             for ba in &bal.binary_data_arrays {
@@ -2604,13 +2608,8 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
                     None => continue,
                 };
 
-                let len = arr.len() as u32;
-                if len == 0 {
+                if arr.len() == 0 {
                     continue;
-                }
-
-                if default_array_len == 0 {
-                    default_array_len = len;
                 }
 
                 let array_type = array_type_tail(ba);
@@ -2618,29 +2617,31 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
                     chrom_array_types.insert(array_type);
                 }
 
-                let dtype = dtype_of(ba, arr, f32_compress);
-                let esz = dtype_elem_size(dtype);
+                let writer_dtype = dtype_of(ba, arr, f32_compress);
+                let entry_dtype = entry_dtype_from_writer_dtype(writer_dtype);
+
+                let esz = dtype_elem_size(writer_dtype);
                 let item_bytes = arr.len() * esz;
 
-                let (block_id, element_off) =
-                    chrom_builder.write_item(item_bytes, esz, |buf| write_array(buf, arr, dtype));
+                let (block_id, element_off) = chrom_builder
+                    .write_item(item_bytes, esz, |buf| write_array(buf, arr, writer_dtype));
 
-                write_u32_le(&mut chrom_arrayrefs_bytes, array_type);
-                write_u32_le(&mut chrom_arrayrefs_bytes, block_id);
+                let len_elements = arr.len() as u64;
+
                 write_u64_le(&mut chrom_arrayrefs_bytes, element_off);
-                write_u32_le(&mut chrom_arrayrefs_bytes, len);
-                chrom_arrayrefs_bytes.push(dtype);
-                chrom_arrayrefs_bytes.extend_from_slice(&[0u8; 11]);
+                write_u64_le(&mut chrom_arrayrefs_bytes, len_elements);
+                write_u32_le(&mut chrom_arrayrefs_bytes, block_id);
+                write_u32_le(&mut chrom_arrayrefs_bytes, array_type);
+                chrom_arrayrefs_bytes.push(entry_dtype);
+                chrom_arrayrefs_bytes.extend_from_slice(&[0u8; 7]);
 
                 chrom_b1_index += 1;
                 arr_ref_count += 1;
             }
         }
 
-        write_u32_le(&mut chrom_entries_bytes, arr_ref_start);
-        write_u32_le(&mut chrom_entries_bytes, arr_ref_count);
-        write_u32_le(&mut chrom_entries_bytes, default_array_len);
-        chrom_entries_bytes.extend_from_slice(&[0u8; 20]);
+        write_u64_le(&mut chrom_entries_bytes, arr_ref_start);
+        write_u64_le(&mut chrom_entries_bytes, arr_ref_count);
     }
 
     let (container_spect, block_count_spect) = spect_builder.finalize();

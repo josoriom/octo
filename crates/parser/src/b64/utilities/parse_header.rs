@@ -1,5 +1,5 @@
 const HEADER_SIZE: usize = 512;
-const RESERVED_SIZE: usize = HEADER_SIZE - 256;
+const RESERVED_EXT_SIZE: usize = 256;
 
 pub fn parse_header(bytes: &[u8]) -> Result<Header, String> {
     if bytes.len() < HEADER_SIZE {
@@ -8,9 +8,10 @@ pub fn parse_header(bytes: &[u8]) -> Result<Header, String> {
 
     let mut r = Reader::new(&bytes[..HEADER_SIZE]);
 
+    // 0..8
     let file_signature = r.read_arr::<4>("file_signature")?;
     let endianness_flag = r.read_u8("endianness_flag")?;
-    let reserved_alignment = r.read_arr::<3>("reserved_alignment")?;
+    let reserved = r.read_arr::<3>("reserved")?;
 
     if &file_signature != b"B000" {
         return Err("header: invalid file_signature (expected \"B000\")".into());
@@ -18,7 +19,11 @@ pub fn parse_header(bytes: &[u8]) -> Result<Header, String> {
     if endianness_flag != 0 {
         return Err("header: expected little-endian endianness_flag=0".into());
     }
+    if reserved != [0, 0, 0] {
+        return Err("header: reserved[3] must be zero".into());
+    }
 
+    // 8..152 (u64 offsets/lengths)
     let off_spec_entries = r.read_u64_le("off_spec_entries")?;
     let len_spec_entries = r.read_u64_le("len_spec_entries")?;
 
@@ -46,6 +51,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<Header, String> {
     let off_container_chrom = r.read_u64_le("off_container_chrom")?;
     let len_container_chrom = r.read_u64_le("len_container_chrom")?;
 
+    // 152..212 (u32 counts)
     let block_count_spect = r.read_u32_le("block_count_spect")?;
     let block_count_chrom = r.read_u32_le("block_count_chrom")?;
 
@@ -53,40 +59,61 @@ pub fn parse_header(bytes: &[u8]) -> Result<Header, String> {
     let chrom_count = r.read_u32_le("chrom_count")?;
 
     let spec_meta_count = r.read_u32_le("spec_meta_count")?;
-    let spec_num_count = r.read_u32_le("spec_num_count")?;
-    let spec_str_count = r.read_u32_le("spec_str_count")?;
+    let spec_meta_num_count = r.read_u32_le("spec_meta_num_count")?;
+    let spec_meta_str_count = r.read_u32_le("spec_meta_str_count")?;
 
     let chrom_meta_count = r.read_u32_le("chrom_meta_count")?;
-    let chrom_num_count = r.read_u32_le("chrom_num_count")?;
-    let chrom_str_count = r.read_u32_le("chrom_str_count")?;
+    let chrom_meta_num_count = r.read_u32_le("chrom_meta_num_count")?;
+    let chrom_meta_str_count = r.read_u32_le("chrom_meta_str_count")?;
 
     let global_meta_count = r.read_u32_le("global_meta_count")?;
-    let global_num_count = r.read_u32_le("global_num_count")?;
-    let global_str_count = r.read_u32_le("global_str_count")?;
+    let global_meta_num_count = r.read_u32_le("global_meta_num_count")?;
+    let global_meta_str_count = r.read_u32_le("global_meta_str_count")?;
 
-    let spect_array_type_count = r.read_u32_le("spect_array_type_count")?;
-    let chrom_array_type_count = r.read_u32_le("chrom_array_type_count")?;
+    let spect_array_count = r.read_u32_le("spect_array_count")?;
+    let chrom_array_count = r.read_u32_le("chrom_array_count")?;
 
-    let _pad_212_215 = r.read_arr::<4>("pad_212_215")?;
+    // 212..216 reserved u8[4]
+    let reserved_212_215 = r.read_arr::<4>("reserved_212_215")?;
+    if reserved_212_215 != [0, 0, 0, 0] {
+        return Err("header: reserved[4] at 212..216 must be zero".into());
+    }
 
-    let target_block_uncomp_bytes = r.read_u64_le("target_block_uncomp_bytes")?;
+    // 216..224
+    let target_block_uncompressed_bytes = r.read_u64_le("target_block_uncompressed_bytes")?;
 
-    let codec_id = r.read_u8("codec_id")?;
+    // 224..232 codec + reserved
+    let compression_codec = r.read_u8("compression_codec")?;
     let compression_level = r.read_u8("compression_level")?;
     let array_filter = r.read_u8("array_filter")?;
 
-    let _pad_227_231 = r.read_arr::<5>("pad_227_231")?;
+    let reserved_227 = r.read_u8("reserved_227")?;
+    if reserved_227 != 0 {
+        return Err("header: reserved byte at 227 must be zero".into());
+    }
 
-    let size_spec_meta_uncompressed = r.read_u64_le("size_spec_meta_uncompressed")?;
-    let size_chrom_meta_uncompressed = r.read_u64_le("size_chrom_meta_uncompressed")?;
-    let size_global_meta_uncompressed = r.read_u64_le("size_global_meta_uncompressed")?;
+    let reserved_228_231 = r.read_arr::<4>("reserved_228_231")?;
+    if reserved_228_231 != [0, 0, 0, 0] {
+        return Err("header: reserved[4] at 228..232 must be zero".into());
+    }
 
-    let reserved = r.read_arr::<RESERVED_SIZE>("reserved")?;
+    // 232..256
+    let spec_meta_uncompressed_bytes = r.read_u64_le("spec_meta_uncompressed_bytes")?;
+    let chrom_meta_uncompressed_bytes = r.read_u64_le("chrom_meta_uncompressed_bytes")?;
+    let global_meta_uncompressed_bytes = r.read_u64_le("global_meta_uncompressed_bytes")?;
+
+    // 256..512
+    let reserved_ext = r.read_arr::<RESERVED_EXT_SIZE>("reserved_ext")?;
+    if reserved_ext.iter().any(|&b| b != 0) {
+        return Err("header: reserved_ext must be all zeros".into());
+    }
+
+    debug_assert_eq!(r.pos, HEADER_SIZE);
 
     Ok(Header {
         file_signature,
         endianness_flag,
-        reserved_alignment,
+        reserved,
 
         off_spec_entries,
         len_spec_entries,
@@ -117,31 +144,31 @@ pub fn parse_header(bytes: &[u8]) -> Result<Header, String> {
         chrom_count,
 
         spec_meta_count,
-        spec_num_count,
-        spec_str_count,
+        spec_meta_num_count,
+        spec_meta_str_count,
 
         chrom_meta_count,
-        chrom_num_count,
-        chrom_str_count,
+        chrom_meta_num_count,
+        chrom_meta_str_count,
 
         global_meta_count,
-        global_num_count,
-        global_str_count,
+        global_meta_num_count,
+        global_meta_str_count,
 
-        spect_array_type_count,
-        chrom_array_type_count,
+        spect_array_count,
+        chrom_array_count,
 
-        target_block_uncomp_bytes,
+        target_block_uncompressed_bytes,
 
-        codec_id,
+        compression_codec,
         compression_level,
         array_filter,
 
-        size_spec_meta_uncompressed,
-        size_chrom_meta_uncompressed,
-        size_global_meta_uncompressed,
+        spec_meta_uncompressed_bytes,
+        chrom_meta_uncompressed_bytes,
+        global_meta_uncompressed_bytes,
 
-        reserved,
+        reserved_ext,
     })
 }
 
@@ -149,7 +176,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<Header, String> {
 pub struct Header {
     pub file_signature: [u8; 4],
     pub endianness_flag: u8,
-    pub reserved_alignment: [u8; 3],
+    pub reserved: [u8; 3],
 
     pub off_spec_entries: u64,
     pub len_spec_entries: u64,
@@ -180,31 +207,31 @@ pub struct Header {
     pub chrom_count: u32,
 
     pub spec_meta_count: u32,
-    pub spec_num_count: u32,
-    pub spec_str_count: u32,
+    pub spec_meta_num_count: u32,
+    pub spec_meta_str_count: u32,
 
     pub chrom_meta_count: u32,
-    pub chrom_num_count: u32,
-    pub chrom_str_count: u32,
+    pub chrom_meta_num_count: u32,
+    pub chrom_meta_str_count: u32,
 
     pub global_meta_count: u32,
-    pub global_num_count: u32,
-    pub global_str_count: u32,
+    pub global_meta_num_count: u32,
+    pub global_meta_str_count: u32,
 
-    pub spect_array_type_count: u32,
-    pub chrom_array_type_count: u32,
+    pub spect_array_count: u32,
+    pub chrom_array_count: u32,
 
-    pub target_block_uncomp_bytes: u64,
+    pub target_block_uncompressed_bytes: u64,
 
-    pub codec_id: u8,
+    pub compression_codec: u8,
     pub compression_level: u8,
     pub array_filter: u8,
 
-    pub size_spec_meta_uncompressed: u64,
-    pub size_chrom_meta_uncompressed: u64,
-    pub size_global_meta_uncompressed: u64,
+    pub spec_meta_uncompressed_bytes: u64,
+    pub chrom_meta_uncompressed_bytes: u64,
+    pub global_meta_uncompressed_bytes: u64,
 
-    pub reserved: [u8; RESERVED_SIZE],
+    pub reserved_ext: [u8; RESERVED_EXT_SIZE],
 }
 
 struct Reader<'a> {
