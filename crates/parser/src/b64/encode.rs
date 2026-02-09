@@ -286,12 +286,16 @@ struct BlockDirEntry {
     uncomp_bytes: u64,
 }
 
+struct BlockBox {
+    open_block_id: Option<u32>,
+    current: Vec<u8>,
+}
+
 struct ContainerBuilder {
     target_uncomp_bytes: usize,
     compression_level: u8,
     do_shuffle: bool,
-    current: Vec<u8>,
-    cur_elem_size: usize,
+    boxes: std::collections::BTreeMap<usize, BlockBox>,
     entries: Vec<BlockDirEntry>,
     compressed: Vec<u8>,
     scratch: Vec<u8>,
@@ -304,8 +308,7 @@ impl ContainerBuilder {
             target_uncomp_bytes,
             compression_level,
             do_shuffle,
-            current: Vec::new(),
-            cur_elem_size: 0,
+            boxes: std::collections::BTreeMap::new(),
             entries: Vec::new(),
             compressed: Vec::new(),
             scratch: Vec::new(),
@@ -313,72 +316,96 @@ impl ContainerBuilder {
     }
 
     #[inline]
-    fn current_block_id(&self) -> u32 {
-        self.entries.len() as u32
-    }
+    fn flush_box(&mut self, elem_size: usize) {
+        let b = match self.boxes.get_mut(&elem_size) {
+            Some(b) => b,
+            None => return,
+        };
 
-    #[inline]
-    fn flush_current(&mut self) {
-        if self.current.is_empty() {
-            self.cur_elem_size = 0;
+        let block_id = match b.open_block_id {
+            Some(id) => id,
+            None => return,
+        };
+
+        if b.current.is_empty() {
+            b.open_block_id = None;
             return;
         }
 
-        let uncomp_bytes = self.current.len() as u64;
+        let uncomp_bytes = b.current.len() as u64;
         let comp_off = self.compressed.len() as u64;
 
         if self.compression_level == 0 {
-            self.entries.push(BlockDirEntry {
+            self.entries[block_id as usize] = BlockDirEntry {
                 comp_off,
                 comp_size: uncomp_bytes,
                 uncomp_bytes,
-            });
-            self.compressed.extend_from_slice(&self.current);
-            self.current.clear();
-            self.cur_elem_size = 0;
+            };
+            self.compressed.extend_from_slice(&b.current);
+            b.current.clear();
+            b.open_block_id = None;
             return;
         }
 
-        let elem_size = self.cur_elem_size.max(1);
+        let esz = elem_size.max(1);
 
-        let to_compress: &[u8] = if self.do_shuffle && elem_size > 1 {
-            self.scratch.resize(self.current.len(), 0);
-            byte_shuffle_into(
-                self.current.as_slice(),
-                self.scratch.as_mut_slice(),
-                elem_size,
-            );
+        let to_compress: &[u8] = if self.do_shuffle && esz > 1 {
+            self.scratch.resize(b.current.len(), 0);
+            byte_shuffle_into(b.current.as_slice(), self.scratch.as_mut_slice(), esz);
             self.scratch.as_slice()
         } else {
-            self.current.as_slice()
+            b.current.as_slice()
         };
 
         let comp = compress_bytes(to_compress, self.compression_level);
         let comp_size = comp.len() as u64;
 
-        self.entries.push(BlockDirEntry {
+        self.entries[block_id as usize] = BlockDirEntry {
             comp_off,
             comp_size,
             uncomp_bytes,
-        });
+        };
 
         self.compressed.extend_from_slice(&comp);
-        self.current.clear();
-        self.cur_elem_size = 0;
+        b.current.clear();
+        b.open_block_id = None;
+    }
+
+    #[inline]
+    fn flush_current(&mut self) {
+        loop {
+            let mut best: Option<(u32, usize)> = None;
+
+            for (esz, b) in self.boxes.iter() {
+                if let Some(id) = b.open_block_id {
+                    if best.map_or(true, |(bid, _)| id < bid) {
+                        best = Some((id, *esz));
+                    }
+                }
+            }
+
+            match best {
+                None => break,
+                Some((_id, esz)) => self.flush_box(esz),
+            }
+        }
     }
 
     #[inline]
     fn ensure_room_for_item(&mut self, item_bytes: usize, elem_size: usize) {
-        if !self.current.is_empty() && self.cur_elem_size != 0 && self.cur_elem_size != elem_size {
-            self.flush_current();
-        }
+        let esz = elem_size.max(1);
 
-        if !self.current.is_empty() && self.current.len() + item_bytes > self.target_uncomp_bytes {
-            self.flush_current();
-        }
+        let need_flush = {
+            let b = self.boxes.entry(esz).or_insert_with(|| BlockBox {
+                open_block_id: None,
+                current: Vec::new(),
+            });
 
-        if self.current.is_empty() {
-            self.cur_elem_size = elem_size;
+            !b.current.is_empty() && b.current.len() + item_bytes > self.target_uncomp_bytes
+        };
+
+        if need_flush {
+            self.flush_box(esz);
         }
     }
 
@@ -387,29 +414,60 @@ impl ContainerBuilder {
     where
         F: FnOnce(&mut Vec<u8>),
     {
+        let esz = elem_size.max(1);
+
         if item_bytes > self.target_uncomp_bytes {
-            if !self.current.is_empty() {
-                self.flush_current();
-            }
-            let block_id = self.current_block_id();
-            self.cur_elem_size = elem_size;
+            self.flush_box(esz);
 
-            self.current.reserve(item_bytes);
-            write_fn(&mut self.current);
+            let b = self.boxes.entry(esz).or_insert_with(|| BlockBox {
+                open_block_id: None,
+                current: Vec::new(),
+            });
 
-            self.flush_current();
+            let block_id = self.entries.len() as u32;
+            self.entries.push(BlockDirEntry {
+                comp_off: 0,
+                comp_size: 0,
+                uncomp_bytes: 0,
+            });
+            b.open_block_id = Some(block_id);
+
+            b.current.reserve(item_bytes);
+            write_fn(&mut b.current);
+
+            self.flush_box(esz);
             return (block_id, 0);
         }
 
-        self.ensure_room_for_item(item_bytes, elem_size);
+        self.ensure_room_for_item(item_bytes, esz);
 
-        debug_assert!(self.cur_elem_size == elem_size);
+        let (block_id, element_off) = {
+            let b = self.boxes.entry(esz).or_insert_with(|| BlockBox {
+                open_block_id: None,
+                current: Vec::new(),
+            });
 
-        let block_id = self.current_block_id();
-        let element_off = (self.current.len() / elem_size) as u64;
+            let id = match b.open_block_id {
+                Some(id) => id,
+                None => {
+                    let id = self.entries.len() as u32;
+                    self.entries.push(BlockDirEntry {
+                        comp_off: 0,
+                        comp_size: 0,
+                        uncomp_bytes: 0,
+                    });
+                    b.open_block_id = Some(id);
+                    id
+                }
+            };
 
-        self.current.reserve(item_bytes);
-        write_fn(&mut self.current);
+            let off = (b.current.len() / esz) as u64;
+
+            b.current.reserve(item_bytes);
+            write_fn(&mut b.current);
+
+            (id, off)
+        };
 
         (block_id, element_off)
     }
