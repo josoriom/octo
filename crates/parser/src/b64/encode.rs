@@ -1,5 +1,8 @@
 use serde::Serialize;
-use std::collections::HashMap;
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    mem, slice,
+};
 use zstd::bulk::compress as zstd_compress;
 
 use crate::{
@@ -125,7 +128,7 @@ fn write_u16_slice_le(buf: &mut Vec<u8>, xs: &[u16]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 2);
+            let b = slice::from_raw_parts(p, xs.len() * 2);
             buf.extend_from_slice(b);
         }
     } else {
@@ -140,7 +143,7 @@ fn write_i16_slice_le(buf: &mut Vec<u8>, xs: &[i16]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 2);
+            let b = slice::from_raw_parts(p, xs.len() * 2);
             buf.extend_from_slice(b);
         }
     } else {
@@ -155,7 +158,7 @@ fn write_i32_slice_le(buf: &mut Vec<u8>, xs: &[i32]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 4);
+            let b = slice::from_raw_parts(p, xs.len() * 4);
             buf.extend_from_slice(b);
         }
     } else {
@@ -170,7 +173,7 @@ fn write_i64_slice_le(buf: &mut Vec<u8>, xs: &[i64]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 8);
+            let b = slice::from_raw_parts(p, xs.len() * 8);
             buf.extend_from_slice(b);
         }
     } else {
@@ -226,7 +229,7 @@ fn write_u32_slice_le(buf: &mut Vec<u8>, xs: &[u32]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 4);
+            let b = slice::from_raw_parts(p, xs.len() * 4);
             buf.extend_from_slice(b);
         }
     } else {
@@ -241,7 +244,7 @@ fn write_f64_slice_le(buf: &mut Vec<u8>, xs: &[f64]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 8);
+            let b = slice::from_raw_parts(p, xs.len() * 8);
             buf.extend_from_slice(b);
         }
     } else {
@@ -256,7 +259,7 @@ fn write_f32_slice_le(buf: &mut Vec<u8>, xs: &[f32]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 4);
+            let b = slice::from_raw_parts(p, xs.len() * 4);
             buf.extend_from_slice(b);
         }
     } else {
@@ -281,21 +284,21 @@ fn byte_shuffle_into(input: &[u8], output: &mut [u8], elem_size: usize) {
 
 #[derive(Clone, Copy)]
 struct BlockDirEntry {
-    comp_off: u64,
-    comp_size: u64,
-    uncomp_bytes: u64,
+    payload_offset: u64,
+    payload_size: u64,
+    uncompressed_len_bytes: u64,
 }
 
 struct BlockBox {
-    open_block_id: Option<u32>,
-    current: Vec<u8>,
+    block_index: Option<u32>,
+    buffer: Vec<u8>,
 }
 
 struct ContainerBuilder {
-    target_uncomp_bytes: usize,
+    target_block_uncomp_byte_size: usize,
     compression_level: u8,
     do_shuffle: bool,
-    boxes: std::collections::BTreeMap<usize, BlockBox>,
+    boxes: BTreeMap<usize, BlockBox>,
     entries: Vec<BlockDirEntry>,
     compressed: Vec<u8>,
     scratch: Vec<u8>,
@@ -303,12 +306,12 @@ struct ContainerBuilder {
 
 impl ContainerBuilder {
     #[inline]
-    fn new(target_uncomp_bytes: usize, compression_level: u8, do_shuffle: bool) -> Self {
+    fn new(target_block_uncomp_byte_size: usize, compression_level: u8, do_shuffle: bool) -> Self {
         Self {
-            target_uncomp_bytes,
+            target_block_uncomp_byte_size,
             compression_level,
             do_shuffle,
-            boxes: std::collections::BTreeMap::new(),
+            boxes: BTreeMap::new(),
             entries: Vec::new(),
             compressed: Vec::new(),
             scratch: Vec::new(),
@@ -316,174 +319,182 @@ impl ContainerBuilder {
     }
 
     #[inline]
-    fn flush_box(&mut self, elem_size: usize) {
-        let b = match self.boxes.get_mut(&elem_size) {
-            Some(b) => b,
-            None => return,
-        };
-
-        let block_id = match b.open_block_id {
-            Some(id) => id,
-            None => return,
-        };
-
-        if b.current.is_empty() {
-            b.open_block_id = None;
-            return;
-        }
-
-        let uncomp_bytes = b.current.len() as u64;
-        let comp_off = self.compressed.len() as u64;
-
-        if self.compression_level == 0 {
-            self.entries[block_id as usize] = BlockDirEntry {
-                comp_off,
-                comp_size: uncomp_bytes,
-                uncomp_bytes,
-            };
-            self.compressed.extend_from_slice(&b.current);
-            b.current.clear();
-            b.open_block_id = None;
-            return;
-        }
-
-        let esz = elem_size.max(1);
-
-        let to_compress: &[u8] = if self.do_shuffle && esz > 1 {
-            self.scratch.resize(b.current.len(), 0);
-            byte_shuffle_into(b.current.as_slice(), self.scratch.as_mut_slice(), esz);
-            self.scratch.as_slice()
-        } else {
-            b.current.as_slice()
-        };
-
-        let comp = compress_bytes(to_compress, self.compression_level);
-        let comp_size = comp.len() as u64;
-
-        self.entries[block_id as usize] = BlockDirEntry {
-            comp_off,
-            comp_size,
-            uncomp_bytes,
-        };
-
-        self.compressed.extend_from_slice(&comp);
-        b.current.clear();
-        b.open_block_id = None;
-    }
-
-    #[inline]
-    fn flush_current(&mut self) {
-        loop {
-            let mut best: Option<(u32, usize)> = None;
-
-            for (esz, b) in self.boxes.iter() {
-                if let Some(id) = b.open_block_id {
-                    if best.map_or(true, |(bid, _)| id < bid) {
-                        best = Some((id, *esz));
-                    }
-                }
-            }
-
-            match best {
-                None => break,
-                Some((_id, esz)) => self.flush_box(esz),
-            }
-        }
-    }
-
-    #[inline]
-    fn ensure_room_for_item(&mut self, item_bytes: usize, elem_size: usize) {
-        let esz = elem_size.max(1);
-
-        let need_flush = {
-            let b = self.boxes.entry(esz).or_insert_with(|| BlockBox {
-                open_block_id: None,
-                current: Vec::new(),
-            });
-
-            !b.current.is_empty() && b.current.len() + item_bytes > self.target_uncomp_bytes
-        };
-
-        if need_flush {
-            self.flush_box(esz);
-        }
-    }
-
-    #[inline]
-    fn write_item<F>(&mut self, item_bytes: usize, elem_size: usize, write_fn: F) -> (u32, u64)
+    fn add_item_to_box<F>(&mut self, item_bytes: usize, elem_size: usize, write_fn: F) -> (u32, u64)
     where
         F: FnOnce(&mut Vec<u8>),
     {
-        let esz = elem_size.max(1);
+        let element_size = elem_size.max(1);
 
-        if item_bytes > self.target_uncomp_bytes {
-            self.flush_box(esz);
+        if item_bytes > self.target_block_uncomp_byte_size {
+            self.seal_box(element_size);
 
-            let b = self.boxes.entry(esz).or_insert_with(|| BlockBox {
-                open_block_id: None,
-                current: Vec::new(),
+            let b = self.boxes.entry(element_size).or_insert_with(|| BlockBox {
+                block_index: None,
+                buffer: Vec::new(),
             });
 
             let block_id = self.entries.len() as u32;
             self.entries.push(BlockDirEntry {
-                comp_off: 0,
-                comp_size: 0,
-                uncomp_bytes: 0,
+                payload_offset: 0,
+                payload_size: 0,
+                uncompressed_len_bytes: 0,
             });
-            b.open_block_id = Some(block_id);
+            b.block_index = Some(block_id);
 
-            b.current.reserve(item_bytes);
-            write_fn(&mut b.current);
+            b.buffer.reserve(item_bytes);
+            write_fn(&mut b.buffer);
 
-            self.flush_box(esz);
+            self.seal_box(element_size);
             return (block_id, 0);
         }
 
-        self.ensure_room_for_item(item_bytes, esz);
-
-        let (block_id, element_off) = {
-            let b = self.boxes.entry(esz).or_insert_with(|| BlockBox {
-                open_block_id: None,
-                current: Vec::new(),
+        self.ensure_box_has_space(item_bytes, element_size);
+        let (index, element_off) = {
+            let block_box = self.boxes.entry(element_size).or_insert_with(|| BlockBox {
+                block_index: None,
+                buffer: Vec::new(),
             });
 
-            let id = match b.open_block_id {
-                Some(id) => id,
+            let box_index = match block_box.block_index {
+                Some(idx) => idx,
                 None => {
-                    let id = self.entries.len() as u32;
+                    let idx = self.entries.len() as u32;
                     self.entries.push(BlockDirEntry {
-                        comp_off: 0,
-                        comp_size: 0,
-                        uncomp_bytes: 0,
+                        payload_offset: 0,
+                        payload_size: 0,
+                        uncompressed_len_bytes: 0,
                     });
-                    b.open_block_id = Some(id);
-                    id
+                    block_box.block_index = Some(idx);
+                    idx
                 }
             };
 
-            let off = (b.current.len() / esz) as u64;
+            let offset = (block_box.buffer.len() / element_size) as u64;
 
-            b.current.reserve(item_bytes);
-            write_fn(&mut b.current);
+            block_box.buffer.reserve(item_bytes);
+            write_fn(&mut block_box.buffer);
 
-            (id, off)
+            (box_index, offset)
         };
 
-        (block_id, element_off)
+        (index, element_off)
     }
 
     #[inline]
-    fn finalize(mut self) -> (Vec<u8>, u32) {
-        self.flush_current();
+    fn seal_box(&mut self, element_size_bytes: usize) {
+        let open_box = match self.boxes.get_mut(&element_size_bytes) {
+            Some(open_box) => open_box,
+            None => return,
+        };
 
+        let block_index = match open_box.block_index {
+            Some(id) => id,
+            None => return,
+        };
+
+        if open_box.buffer.is_empty() {
+            open_box.block_index = None;
+            return;
+        }
+
+        let uncompressed_len_bytes = open_box.buffer.len() as u64;
+        let payload_offset = self.compressed.len() as u64;
+
+        if self.compression_level == 0 {
+            self.entries[block_index as usize] = BlockDirEntry {
+                payload_offset,
+                payload_size: uncompressed_len_bytes,
+                uncompressed_len_bytes: uncompressed_len_bytes,
+            };
+            self.compressed.extend_from_slice(&open_box.buffer);
+            open_box.buffer.clear();
+            open_box.block_index = None;
+            return;
+        }
+
+        let element_size = element_size_bytes.max(1);
+
+        let uncompressed: &[u8] = if self.do_shuffle && element_size > 1 {
+            self.scratch.resize(open_box.buffer.len(), 0);
+            byte_shuffle_into(
+                open_box.buffer.as_slice(),
+                self.scratch.as_mut_slice(),
+                element_size,
+            );
+            self.scratch.as_slice()
+        } else {
+            open_box.buffer.as_slice()
+        };
+
+        let compressed = compress_bytes(uncompressed, self.compression_level);
+        let compressed_size = compressed.len() as u64;
+
+        self.entries[block_index as usize] = BlockDirEntry {
+            payload_offset,
+            payload_size: compressed_size,
+            uncompressed_len_bytes,
+        };
+
+        self.compressed.extend_from_slice(&compressed);
+        open_box.buffer.clear();
+        open_box.block_index = None;
+    }
+
+    #[inline]
+    fn ensure_box_has_space(&mut self, item_bytes: usize, element_size_bytes: usize) {
+        let element_size_bytes = element_size_bytes.max(1);
+
+        // Check if the current open box for this element size would overflow if we add this item.
+        let should_seal_current_box = {
+            let block_box = self
+                .boxes
+                .entry(element_size_bytes)
+                .or_insert_with(|| BlockBox {
+                    block_index: None,
+                    buffer: Vec::new(),
+                });
+
+            !block_box.buffer.is_empty()
+                && block_box.buffer.len() + item_bytes > self.target_block_uncomp_byte_size
+        };
+
+        if should_seal_current_box {
+            self.seal_box(element_size_bytes);
+        }
+    }
+
+    #[inline]
+    fn pack(mut self) -> (Vec<u8>, u32) {
+        // Ensure all boxes are closed. Flush all open boxes
+        loop {
+            let mut found = false;
+            let mut min_block_index = u32::MAX;
+            let mut elem_size_to_flush = 0usize;
+            for (elem_size, open_box) in self.boxes.iter() {
+                if let Some(block_index) = open_box.block_index {
+                    if block_index < min_block_index {
+                        min_block_index = block_index;
+                        elem_size_to_flush = *elem_size;
+                        found = true;
+                    }
+                }
+            }
+
+            if !found {
+                break;
+            }
+            self.seal_box(elem_size_to_flush);
+        }
+
+        // Write the container
         let block_count = self.entries.len() as u32;
-        let dir_bytes = self.entries.len() * BLOCK_DIR_ENTRY_SIZE;
+        let directory_byte_size = self.entries.len() * BLOCK_DIR_ENTRY_SIZE;
 
-        let mut container = Vec::with_capacity(dir_bytes + self.compressed.len());
-        for e in &self.entries {
-            write_u64_le(&mut container, e.comp_off);
-            write_u64_le(&mut container, e.comp_size);
-            write_u64_le(&mut container, e.uncomp_bytes);
+        let mut container = Vec::with_capacity(directory_byte_size + self.compressed.len());
+        for block in &self.entries {
+            write_u64_le(&mut container, block.payload_offset);
+            write_u64_le(&mut container, block.payload_size);
+            write_u64_le(&mut container, block.uncompressed_len_bytes);
             container.extend_from_slice(&[0u8; 8]);
         }
         container.extend_from_slice(&self.compressed);
@@ -1520,7 +1531,7 @@ fn build_global_meta_items(
                     TagId::Sample,
                     sample_id,
                     0,
-                    std::slice::from_ref(r),
+                    slice::from_ref(r),
                     ref_groups,
                 );
             }
@@ -2379,7 +2390,7 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
             if cv.cv_ref.as_deref() == Some(CV_REF_ATTR) {
                 let empty_val = cv.value.as_deref().map_or(true, |s| s.is_empty());
                 if empty_val && !cv.name.is_empty() {
-                    cv.value = Some(std::mem::take(&mut cv.name));
+                    cv.value = Some(mem::take(&mut cv.name));
                 }
             }
         }
@@ -2596,8 +2607,8 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
     let mut chrom_entries_bytes = Vec::with_capacity(chromatograms.len() * 16);
     let mut chrom_arrayrefs_bytes = Vec::new();
 
-    let mut spect_array_types: std::collections::HashSet<u32> = std::collections::HashSet::new();
-    let mut chrom_array_types: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut spect_array_types: HashSet<u32> = HashSet::new();
+    let mut chrom_array_types: HashSet<u32> = HashSet::new();
 
     let mut spect_builder =
         ContainerBuilder::new(TARGET_BLOCK_UNCOMP_BYTES, compression_level, do_shuffle);
@@ -2632,8 +2643,10 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
                 let esz = dtype_elem_size(writer_dtype);
                 let item_bytes = arr.len() * esz;
 
-                let (block_id, element_off) = spect_builder
-                    .write_item(item_bytes, esz, |buf| write_array(buf, arr, writer_dtype));
+                let (block_id, element_off) =
+                    spect_builder.add_item_to_box(item_bytes, esz, |buf| {
+                        write_array(buf, arr, writer_dtype)
+                    });
 
                 let len_elements = arr.len() as u64;
 
@@ -2681,8 +2694,10 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
                 let esz = dtype_elem_size(writer_dtype);
                 let item_bytes = arr.len() * esz;
 
-                let (block_id, element_off) = chrom_builder
-                    .write_item(item_bytes, esz, |buf| write_array(buf, arr, writer_dtype));
+                let (block_id, element_off) =
+                    chrom_builder.add_item_to_box(item_bytes, esz, |buf| {
+                        write_array(buf, arr, writer_dtype)
+                    });
 
                 let len_elements = arr.len() as u64;
 
@@ -2702,8 +2717,8 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
         write_u64_le(&mut chrom_entries_bytes, arr_ref_count);
     }
 
-    let (container_spect, block_count_spect) = spect_builder.finalize();
-    let (container_chrom, block_count_chrom) = chrom_builder.finalize();
+    let (container_spect, block_count_spect) = spect_builder.pack();
+    let (container_chrom, block_count_chrom) = chrom_builder.pack();
 
     let mut output = Vec::with_capacity(
         HEADER_SIZE
