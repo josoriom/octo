@@ -13,7 +13,6 @@ fn read_bytes(path: &str) -> Vec<u8> {
 fn check_header() {
     let bytes = read_bytes(PATH);
     let header = parse_header(&bytes).expect("parse_header failed");
-    println!("{:#?}", header);
 
     assert_eq!(header.file_signature, [66, 48, 48, 48]);
     assert_eq!(header.endianness_flag, 0);
@@ -38,7 +37,7 @@ fn check_header() {
     assert_eq!(header.block_count_chrom, 2);
 
     assert_eq!(header.compression_codec, 1);
-    assert_eq!(header.compression_level, 12);
+    assert_eq!(header.compression_level, 22);
     assert_eq!(header.array_filter, 1);
 
     assert!(header.spect_array_count > 0);

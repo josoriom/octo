@@ -1,14 +1,14 @@
 use serde::Serialize;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     mem, slice,
 };
 use zstd::bulk::compress as zstd_compress;
 
 use crate::{
     BinaryData, NumericType,
-    b64::utilities::assign_attributes,
-    decode::MetadatumValue,
+    b64::utilities::{assign_attributes, container::ContainerBuilder},
+    decode::{Metadatum, MetadatumValue},
     mzml::{
         attr_meta::*,
         schema::TagId,
@@ -60,7 +60,6 @@ struct GlobalMetaItem {
 
 const HEADER_SIZE: usize = 512;
 const FILE_TRAILER: [u8; 8] = *b"END\0\0\0\0\0";
-const BLOCK_DIR_ENTRY_SIZE: usize = 32;
 
 const TARGET_BLOCK_UNCOMP_BYTES: usize = 64 * 1024 * 1024;
 
@@ -269,240 +268,6 @@ fn write_f32_slice_le(buf: &mut Vec<u8>, xs: &[f32]) {
     }
 }
 
-#[inline]
-fn byte_shuffle_into(input: &[u8], output: &mut [u8], elem_size: usize) {
-    let count = input.len() / elem_size;
-    for b in 0..elem_size {
-        let out_base = b * count;
-        let mut in_i = b;
-        for e in 0..count {
-            output[out_base + e] = input[in_i];
-            in_i += elem_size;
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct BlockDirEntry {
-    payload_offset: u64,
-    payload_size: u64,
-    uncompressed_len_bytes: u64,
-}
-
-struct BlockBox {
-    block_index: Option<u32>,
-    buffer: Vec<u8>,
-}
-
-struct ContainerBuilder {
-    target_block_uncomp_byte_size: usize,
-    compression_level: u8,
-    do_shuffle: bool,
-    boxes: BTreeMap<usize, BlockBox>,
-    entries: Vec<BlockDirEntry>,
-    compressed: Vec<u8>,
-    scratch: Vec<u8>,
-}
-
-impl ContainerBuilder {
-    #[inline]
-    fn new(target_block_uncomp_byte_size: usize, compression_level: u8, do_shuffle: bool) -> Self {
-        Self {
-            target_block_uncomp_byte_size,
-            compression_level,
-            do_shuffle,
-            boxes: BTreeMap::new(),
-            entries: Vec::new(),
-            compressed: Vec::new(),
-            scratch: Vec::new(),
-        }
-    }
-
-    #[inline]
-    fn add_item_to_box<F>(&mut self, item_bytes: usize, elem_size: usize, write_fn: F) -> (u32, u64)
-    where
-        F: FnOnce(&mut Vec<u8>),
-    {
-        let element_size = elem_size.max(1);
-
-        if item_bytes > self.target_block_uncomp_byte_size {
-            self.seal_box(element_size);
-
-            let b = self.boxes.entry(element_size).or_insert_with(|| BlockBox {
-                block_index: None,
-                buffer: Vec::new(),
-            });
-
-            let block_id = self.entries.len() as u32;
-            self.entries.push(BlockDirEntry {
-                payload_offset: 0,
-                payload_size: 0,
-                uncompressed_len_bytes: 0,
-            });
-            b.block_index = Some(block_id);
-
-            b.buffer.reserve(item_bytes);
-            write_fn(&mut b.buffer);
-
-            self.seal_box(element_size);
-            return (block_id, 0);
-        }
-
-        self.ensure_box_has_space(item_bytes, element_size);
-        let (index, element_off) = {
-            let block_box = self.boxes.entry(element_size).or_insert_with(|| BlockBox {
-                block_index: None,
-                buffer: Vec::new(),
-            });
-
-            let box_index = match block_box.block_index {
-                Some(idx) => idx,
-                None => {
-                    let idx = self.entries.len() as u32;
-                    self.entries.push(BlockDirEntry {
-                        payload_offset: 0,
-                        payload_size: 0,
-                        uncompressed_len_bytes: 0,
-                    });
-                    block_box.block_index = Some(idx);
-                    idx
-                }
-            };
-
-            let offset = (block_box.buffer.len() / element_size) as u64;
-
-            block_box.buffer.reserve(item_bytes);
-            write_fn(&mut block_box.buffer);
-
-            (box_index, offset)
-        };
-
-        (index, element_off)
-    }
-
-    #[inline]
-    fn seal_box(&mut self, element_size_bytes: usize) {
-        let open_box = match self.boxes.get_mut(&element_size_bytes) {
-            Some(open_box) => open_box,
-            None => return,
-        };
-
-        let block_index = match open_box.block_index {
-            Some(id) => id,
-            None => return,
-        };
-
-        if open_box.buffer.is_empty() {
-            open_box.block_index = None;
-            return;
-        }
-
-        let uncompressed_len_bytes = open_box.buffer.len() as u64;
-        let payload_offset = self.compressed.len() as u64;
-
-        if self.compression_level == 0 {
-            self.entries[block_index as usize] = BlockDirEntry {
-                payload_offset,
-                payload_size: uncompressed_len_bytes,
-                uncompressed_len_bytes: uncompressed_len_bytes,
-            };
-            self.compressed.extend_from_slice(&open_box.buffer);
-            open_box.buffer.clear();
-            open_box.block_index = None;
-            return;
-        }
-
-        let element_size = element_size_bytes.max(1);
-
-        let uncompressed: &[u8] = if self.do_shuffle && element_size > 1 {
-            self.scratch.resize(open_box.buffer.len(), 0);
-            byte_shuffle_into(
-                open_box.buffer.as_slice(),
-                self.scratch.as_mut_slice(),
-                element_size,
-            );
-            self.scratch.as_slice()
-        } else {
-            open_box.buffer.as_slice()
-        };
-
-        let compressed = compress_bytes(uncompressed, self.compression_level);
-        let compressed_size = compressed.len() as u64;
-
-        self.entries[block_index as usize] = BlockDirEntry {
-            payload_offset,
-            payload_size: compressed_size,
-            uncompressed_len_bytes,
-        };
-
-        self.compressed.extend_from_slice(&compressed);
-        open_box.buffer.clear();
-        open_box.block_index = None;
-    }
-
-    #[inline]
-    fn ensure_box_has_space(&mut self, item_bytes: usize, element_size_bytes: usize) {
-        let element_size_bytes = element_size_bytes.max(1);
-
-        // Check if the current open box for this element size would overflow if we add this item.
-        let should_seal_current_box = {
-            let block_box = self
-                .boxes
-                .entry(element_size_bytes)
-                .or_insert_with(|| BlockBox {
-                    block_index: None,
-                    buffer: Vec::new(),
-                });
-
-            !block_box.buffer.is_empty()
-                && block_box.buffer.len() + item_bytes > self.target_block_uncomp_byte_size
-        };
-
-        if should_seal_current_box {
-            self.seal_box(element_size_bytes);
-        }
-    }
-
-    #[inline]
-    fn pack(mut self) -> (Vec<u8>, u32) {
-        // Ensure all boxes are closed. Flush all open boxes
-        loop {
-            let mut found = false;
-            let mut min_block_index = u32::MAX;
-            let mut elem_size_to_flush = 0usize;
-            for (elem_size, open_box) in self.boxes.iter() {
-                if let Some(block_index) = open_box.block_index {
-                    if block_index < min_block_index {
-                        min_block_index = block_index;
-                        elem_size_to_flush = *elem_size;
-                        found = true;
-                    }
-                }
-            }
-
-            if !found {
-                break;
-            }
-            self.seal_box(elem_size_to_flush);
-        }
-
-        // Write the container
-        let block_count = self.entries.len() as u32;
-        let directory_byte_size = self.entries.len() * BLOCK_DIR_ENTRY_SIZE;
-
-        let mut container = Vec::with_capacity(directory_byte_size + self.compressed.len());
-        for block in &self.entries {
-            write_u64_le(&mut container, block.payload_offset);
-            write_u64_le(&mut container, block.payload_size);
-            write_u64_le(&mut container, block.uncompressed_len_bytes);
-            container.extend_from_slice(&[0u8; 8]);
-        }
-        container.extend_from_slice(&self.compressed);
-
-        (container, block_count)
-    }
-}
-
 #[derive(Debug, Default)]
 struct NodeIdGen {
     next: u32,
@@ -675,7 +440,7 @@ impl<'a> MetaAcc<'a> {
         tag: TagId,
         owner_id: u32,
         parent_owner_id: u32,
-        attrs: Vec<crate::b64::decode::Metadatum>,
+        attrs: Vec<Metadatum>,
     ) {
         for m in attrs {
             let tail = parse_accession_tail(m.accession.as_deref());
