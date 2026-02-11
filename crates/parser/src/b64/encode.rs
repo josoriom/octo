@@ -1,11 +1,14 @@
 use serde::Serialize;
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, HashSet},
+    mem, slice,
+};
 use zstd::bulk::compress as zstd_compress;
 
 use crate::{
     BinaryData, NumericType,
-    b64::utilities::assign_attributes,
-    decode::MetadatumValue,
+    b64::utilities::{assign_attributes, container::ContainerBuilder},
+    decode::{Metadatum, MetadatumValue},
     mzml::{
         attr_meta::*,
         schema::TagId,
@@ -57,7 +60,6 @@ struct GlobalMetaItem {
 
 const HEADER_SIZE: usize = 512;
 const FILE_TRAILER: [u8; 8] = *b"END\0\0\0\0\0";
-const BLOCK_DIR_ENTRY_SIZE: usize = 32;
 
 const TARGET_BLOCK_UNCOMP_BYTES: usize = 64 * 1024 * 1024;
 
@@ -125,7 +127,7 @@ fn write_u16_slice_le(buf: &mut Vec<u8>, xs: &[u16]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 2);
+            let b = slice::from_raw_parts(p, xs.len() * 2);
             buf.extend_from_slice(b);
         }
     } else {
@@ -140,7 +142,7 @@ fn write_i16_slice_le(buf: &mut Vec<u8>, xs: &[i16]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 2);
+            let b = slice::from_raw_parts(p, xs.len() * 2);
             buf.extend_from_slice(b);
         }
     } else {
@@ -155,7 +157,7 @@ fn write_i32_slice_le(buf: &mut Vec<u8>, xs: &[i32]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 4);
+            let b = slice::from_raw_parts(p, xs.len() * 4);
             buf.extend_from_slice(b);
         }
     } else {
@@ -170,7 +172,7 @@ fn write_i64_slice_le(buf: &mut Vec<u8>, xs: &[i64]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 8);
+            let b = slice::from_raw_parts(p, xs.len() * 8);
             buf.extend_from_slice(b);
         }
     } else {
@@ -226,7 +228,7 @@ fn write_u32_slice_le(buf: &mut Vec<u8>, xs: &[u32]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 4);
+            let b = slice::from_raw_parts(p, xs.len() * 4);
             buf.extend_from_slice(b);
         }
     } else {
@@ -241,7 +243,7 @@ fn write_f64_slice_le(buf: &mut Vec<u8>, xs: &[f64]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 8);
+            let b = slice::from_raw_parts(p, xs.len() * 8);
             buf.extend_from_slice(b);
         }
     } else {
@@ -256,181 +258,13 @@ fn write_f32_slice_le(buf: &mut Vec<u8>, xs: &[f32]) {
     if cfg!(target_endian = "little") {
         unsafe {
             let p = xs.as_ptr() as *const u8;
-            let b = std::slice::from_raw_parts(p, xs.len() * 4);
+            let b = slice::from_raw_parts(p, xs.len() * 4);
             buf.extend_from_slice(b);
         }
     } else {
         for &v in xs {
             write_f32_le(buf, v);
         }
-    }
-}
-
-#[inline]
-fn byte_shuffle_into(input: &[u8], output: &mut [u8], elem_size: usize) {
-    let count = input.len() / elem_size;
-    for b in 0..elem_size {
-        let out_base = b * count;
-        let mut in_i = b;
-        for e in 0..count {
-            output[out_base + e] = input[in_i];
-            in_i += elem_size;
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct BlockDirEntry {
-    comp_off: u64,
-    comp_size: u64,
-    uncomp_bytes: u64,
-}
-
-struct ContainerBuilder {
-    target_uncomp_bytes: usize,
-    compression_level: u8,
-    do_shuffle: bool,
-    current: Vec<u8>,
-    cur_elem_size: usize,
-    entries: Vec<BlockDirEntry>,
-    compressed: Vec<u8>,
-    scratch: Vec<u8>,
-}
-
-impl ContainerBuilder {
-    #[inline]
-    fn new(target_uncomp_bytes: usize, compression_level: u8, do_shuffle: bool) -> Self {
-        Self {
-            target_uncomp_bytes,
-            compression_level,
-            do_shuffle,
-            current: Vec::new(),
-            cur_elem_size: 0,
-            entries: Vec::new(),
-            compressed: Vec::new(),
-            scratch: Vec::new(),
-        }
-    }
-
-    #[inline]
-    fn current_block_id(&self) -> u32 {
-        self.entries.len() as u32
-    }
-
-    #[inline]
-    fn flush_current(&mut self) {
-        if self.current.is_empty() {
-            self.cur_elem_size = 0;
-            return;
-        }
-
-        let uncomp_bytes = self.current.len() as u64;
-        let comp_off = self.compressed.len() as u64;
-
-        if self.compression_level == 0 {
-            self.entries.push(BlockDirEntry {
-                comp_off,
-                comp_size: uncomp_bytes,
-                uncomp_bytes,
-            });
-            self.compressed.extend_from_slice(&self.current);
-            self.current.clear();
-            self.cur_elem_size = 0;
-            return;
-        }
-
-        let elem_size = self.cur_elem_size.max(1);
-
-        let to_compress: &[u8] = if self.do_shuffle && elem_size > 1 {
-            self.scratch.resize(self.current.len(), 0);
-            byte_shuffle_into(
-                self.current.as_slice(),
-                self.scratch.as_mut_slice(),
-                elem_size,
-            );
-            self.scratch.as_slice()
-        } else {
-            self.current.as_slice()
-        };
-
-        let comp = compress_bytes(to_compress, self.compression_level);
-        let comp_size = comp.len() as u64;
-
-        self.entries.push(BlockDirEntry {
-            comp_off,
-            comp_size,
-            uncomp_bytes,
-        });
-
-        self.compressed.extend_from_slice(&comp);
-        self.current.clear();
-        self.cur_elem_size = 0;
-    }
-
-    #[inline]
-    fn ensure_room_for_item(&mut self, item_bytes: usize, elem_size: usize) {
-        if !self.current.is_empty() && self.cur_elem_size != 0 && self.cur_elem_size != elem_size {
-            self.flush_current();
-        }
-
-        if !self.current.is_empty() && self.current.len() + item_bytes > self.target_uncomp_bytes {
-            self.flush_current();
-        }
-
-        if self.current.is_empty() {
-            self.cur_elem_size = elem_size;
-        }
-    }
-
-    #[inline]
-    fn write_item<F>(&mut self, item_bytes: usize, elem_size: usize, write_fn: F) -> (u32, u64)
-    where
-        F: FnOnce(&mut Vec<u8>),
-    {
-        if item_bytes > self.target_uncomp_bytes {
-            if !self.current.is_empty() {
-                self.flush_current();
-            }
-            let block_id = self.current_block_id();
-            self.cur_elem_size = elem_size;
-
-            self.current.reserve(item_bytes);
-            write_fn(&mut self.current);
-
-            self.flush_current();
-            return (block_id, 0);
-        }
-
-        self.ensure_room_for_item(item_bytes, elem_size);
-
-        debug_assert!(self.cur_elem_size == elem_size);
-
-        let block_id = self.current_block_id();
-        let element_off = (self.current.len() / elem_size) as u64;
-
-        self.current.reserve(item_bytes);
-        write_fn(&mut self.current);
-
-        (block_id, element_off)
-    }
-
-    #[inline]
-    fn finalize(mut self) -> (Vec<u8>, u32) {
-        self.flush_current();
-
-        let block_count = self.entries.len() as u32;
-        let dir_bytes = self.entries.len() * BLOCK_DIR_ENTRY_SIZE;
-
-        let mut container = Vec::with_capacity(dir_bytes + self.compressed.len());
-        for e in &self.entries {
-            write_u64_le(&mut container, e.comp_off);
-            write_u64_le(&mut container, e.comp_size);
-            write_u64_le(&mut container, e.uncomp_bytes);
-            container.extend_from_slice(&[0u8; 8]);
-        }
-        container.extend_from_slice(&self.compressed);
-
-        (container, block_count)
     }
 }
 
@@ -606,7 +440,7 @@ impl<'a> MetaAcc<'a> {
         tag: TagId,
         owner_id: u32,
         parent_owner_id: u32,
-        attrs: Vec<crate::b64::decode::Metadatum>,
+        attrs: Vec<Metadatum>,
     ) {
         for m in attrs {
             let tail = parse_accession_tail(m.accession.as_deref());
@@ -1462,7 +1296,7 @@ fn build_global_meta_items(
                     TagId::Sample,
                     sample_id,
                     0,
-                    std::slice::from_ref(r),
+                    slice::from_ref(r),
                     ref_groups,
                 );
             }
@@ -2321,7 +2155,7 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
             if cv.cv_ref.as_deref() == Some(CV_REF_ATTR) {
                 let empty_val = cv.value.as_deref().map_or(true, |s| s.is_empty());
                 if empty_val && !cv.name.is_empty() {
-                    cv.value = Some(std::mem::take(&mut cv.name));
+                    cv.value = Some(mem::take(&mut cv.name));
                 }
             }
         }
@@ -2538,8 +2372,8 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
     let mut chrom_entries_bytes = Vec::with_capacity(chromatograms.len() * 16);
     let mut chrom_arrayrefs_bytes = Vec::new();
 
-    let mut spect_array_types: std::collections::HashSet<u32> = std::collections::HashSet::new();
-    let mut chrom_array_types: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut spect_array_types: HashSet<u32> = HashSet::new();
+    let mut chrom_array_types: HashSet<u32> = HashSet::new();
 
     let mut spect_builder =
         ContainerBuilder::new(TARGET_BLOCK_UNCOMP_BYTES, compression_level, do_shuffle);
@@ -2574,8 +2408,10 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
                 let esz = dtype_elem_size(writer_dtype);
                 let item_bytes = arr.len() * esz;
 
-                let (block_id, element_off) = spect_builder
-                    .write_item(item_bytes, esz, |buf| write_array(buf, arr, writer_dtype));
+                let (block_id, element_off) =
+                    spect_builder.add_item_to_box(item_bytes, esz, |buf| {
+                        write_array(buf, arr, writer_dtype)
+                    });
 
                 let len_elements = arr.len() as u64;
 
@@ -2623,8 +2459,10 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
                 let esz = dtype_elem_size(writer_dtype);
                 let item_bytes = arr.len() * esz;
 
-                let (block_id, element_off) = chrom_builder
-                    .write_item(item_bytes, esz, |buf| write_array(buf, arr, writer_dtype));
+                let (block_id, element_off) =
+                    chrom_builder.add_item_to_box(item_bytes, esz, |buf| {
+                        write_array(buf, arr, writer_dtype)
+                    });
 
                 let len_elements = arr.len() as u64;
 
@@ -2644,8 +2482,8 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
         write_u64_le(&mut chrom_entries_bytes, arr_ref_count);
     }
 
-    let (container_spect, block_count_spect) = spect_builder.finalize();
-    let (container_chrom, block_count_chrom) = chrom_builder.finalize();
+    let (container_spect, block_count_spect) = spect_builder.pack();
+    let (container_chrom, block_count_chrom) = chrom_builder.pack();
 
     let mut output = Vec::with_capacity(
         HEADER_SIZE

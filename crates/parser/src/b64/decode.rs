@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use crate::{
     b64::utilities::{
-        Header, common::*, parse_chromatogram_list, parse_cv_and_user_params, parse_cv_list,
-        parse_data_processing_list, parse_file_description::parse_file_description,
+        Header, common::*, container::ContainerView, parse_chromatogram_list,
+        parse_cv_and_user_params, parse_cv_list, parse_data_processing_list,
+        parse_file_description::parse_file_description,
         parse_global_metadata::parse_global_metadata, parse_header, parse_instrument_list,
         parse_metadata, parse_referenceable_param_group_list, parse_sample_list,
         parse_scan_settings_list, parse_software_list, parse_spectrum_list,
@@ -13,9 +14,6 @@ use crate::{
 
 pub const A0_ENTRY_SIZE: u64 = 16;
 pub const A1_ENTRY_SIZE: u64 = 32;
-const BLOCK_DIR_ENTRY_SIZE: usize = 32;
-
-const ARRAY_FILTER_BYTE_SHUFFLE: u8 = 1;
 
 const ACC_32BIT_FLOAT: u32 = 1_000_521;
 const ACC_64BIT_FLOAT: u32 = 1_000_523;
@@ -178,71 +176,6 @@ pub fn read_u32_le_at(bytes: &[u8], pos: &mut usize, field: &'static str) -> Res
 pub fn read_u64_le_at(bytes: &[u8], pos: &mut usize, field: &'static str) -> Result<u64, String> {
     let s = take(bytes, pos, 8, field)?;
     Ok(u64::from_le_bytes(s.try_into().unwrap()))
-}
-
-#[inline(always)]
-fn byte_unshuffle_into(input: &[u8], output: &mut [u8], elem_size: usize) {
-    assert_eq!(input.len(), output.len(), "in/out size mismatch");
-    assert_eq!(input.len() % elem_size, 0, "len not multiple of elem_size");
-
-    match elem_size {
-        4 => unshuffle4(input, output),
-        8 => unshuffle8(input, output),
-        _ => unshuffle_generic(input, output, elem_size),
-    }
-}
-
-#[inline(always)]
-fn unshuffle4(input: &[u8], output: &mut [u8]) {
-    let n = input.len() / 4;
-
-    let (b0, rest) = input.split_at(n);
-    let (b1, rest) = rest.split_at(n);
-    let (b2, b3) = rest.split_at(n);
-
-    for i in 0..n {
-        let o = i * 4;
-        output[o] = b0[i];
-        output[o + 1] = b1[i];
-        output[o + 2] = b2[i];
-        output[o + 3] = b3[i];
-    }
-}
-
-#[inline(always)]
-fn unshuffle8(input: &[u8], output: &mut [u8]) {
-    let n = input.len() / 8;
-
-    let (b0, rest) = input.split_at(n);
-    let (b1, rest) = rest.split_at(n);
-    let (b2, rest) = rest.split_at(n);
-    let (b3, rest) = rest.split_at(n);
-    let (b4, rest) = rest.split_at(n);
-    let (b5, rest) = rest.split_at(n);
-    let (b6, b7) = rest.split_at(n);
-
-    for i in 0..n {
-        let o = i * 8;
-        output[o] = b0[i];
-        output[o + 1] = b1[i];
-        output[o + 2] = b2[i];
-        output[o + 3] = b3[i];
-        output[o + 4] = b4[i];
-        output[o + 5] = b5[i];
-        output[o + 6] = b6[i];
-        output[o + 7] = b7[i];
-    }
-}
-
-#[inline(always)]
-fn unshuffle_generic(input: &[u8], output: &mut [u8], elem_size: usize) {
-    let count = input.len() / elem_size;
-    for b in 0..elem_size {
-        let in_base = b * count;
-        for e in 0..count {
-            output[b + e * elem_size] = input[in_base + e];
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -515,13 +448,6 @@ fn parse_binaries(
         len_elements: u64,
     }
 
-    #[derive(Clone, Copy)]
-    struct BlockDirEntry {
-        comp_off: u64,
-        comp_size: u64,
-        uncomp_bytes: u64,
-    }
-
     #[inline]
     fn parse_a0_section(
         bytes: &[u8],
@@ -593,119 +519,6 @@ fn parse_binaries(
     }
 
     #[inline]
-    fn parse_container_dir(
-        container: &[u8],
-        block_count: u32,
-        field: &'static str,
-    ) -> Result<(Vec<BlockDirEntry>, usize), String> {
-        let bc = block_count as usize;
-        let dir_bytes = bc
-            .checked_mul(BLOCK_DIR_ENTRY_SIZE)
-            .ok_or_else(|| format!("{field}: dir size overflow"))?;
-
-        if container.len() < dir_bytes {
-            return Err(format!("{field}: too small for directory"));
-        }
-
-        let dir_raw = &container[..dir_bytes];
-        let mut pos = 0usize;
-
-        let mut dir = Vec::with_capacity(bc);
-        for _ in 0..bc {
-            let comp_off = read_u64_le_at(dir_raw, &mut pos, "comp_off")?;
-            let comp_size = read_u64_le_at(dir_raw, &mut pos, "comp_size")?;
-            let uncomp_bytes = read_u64_le_at(dir_raw, &mut pos, "uncomp_bytes")?;
-            let _ = take(dir_raw, &mut pos, 8, "reserved")?;
-            dir.push(BlockDirEntry {
-                comp_off,
-                comp_size,
-                uncomp_bytes,
-            });
-        }
-
-        Ok((dir, dir_bytes))
-    }
-
-    #[inline]
-    fn ensure_block(
-        container: &[u8],
-        comp_buf_start: usize,
-        dir: &[BlockDirEntry],
-        cache: &mut [Option<Vec<u8>>],
-        scratch: &mut Vec<u8>,
-        block_elem_sizes: &mut [usize],
-        block_id: u32,
-        elem_size: usize,
-        compression_level: u8,
-        array_filter: u8,
-        field: &'static str,
-    ) -> Result<(), String> {
-        let i = block_id as usize;
-        if i >= cache.len() {
-            return Err(format!("{field}: block_id out of range: {block_id}"));
-        }
-
-        if array_filter == ARRAY_FILTER_BYTE_SHUFFLE && elem_size > 1 {
-            let prev = block_elem_sizes[i];
-            if prev == 0 {
-                block_elem_sizes[i] = elem_size;
-            } else if prev != elem_size {
-                return Err(format!(
-                    "{field}: block elem_size mismatch for block_id={block_id} (prev={prev}, now={elem_size})"
-                ));
-            }
-        }
-
-        if cache[i].is_some() {
-            return Ok(());
-        }
-
-        let e = dir[i];
-
-        let comp_off =
-            usize::try_from(e.comp_off).map_err(|_| format!("{field}: comp_off overflow"))?;
-        let comp_size =
-            usize::try_from(e.comp_size).map_err(|_| format!("{field}: comp_size overflow"))?;
-        let expected = usize::try_from(e.uncomp_bytes)
-            .map_err(|_| format!("{field}: uncomp_bytes overflow"))?;
-
-        let start = comp_buf_start
-            .checked_add(comp_off)
-            .ok_or_else(|| format!("{field}: comp start overflow"))?;
-        let end = start
-            .checked_add(comp_size)
-            .ok_or_else(|| format!("{field}: comp end overflow"))?;
-
-        if end > container.len() {
-            return Err(format!("{field}: block range out of bounds"));
-        }
-
-        let comp = &container[start..end];
-        let mut out = if compression_level == 0 {
-            comp.to_vec()
-        } else {
-            decompress_zstd(comp, expected)?
-        };
-
-        if out.len() != expected {
-            return Err(format!(
-                "{field}: bad block size (block_id={block_id}, got={}, expected={})",
-                out.len(),
-                expected
-            ));
-        }
-
-        if array_filter == ARRAY_FILTER_BYTE_SHUFFLE && elem_size > 1 {
-            scratch.resize(out.len(), 0);
-            byte_unshuffle_into(&out, scratch.as_mut_slice(), elem_size);
-            std::mem::swap(&mut out, scratch);
-        }
-
-        cache[i] = Some(out);
-        Ok(())
-    }
-
-    #[inline]
     fn bytes_to_u16_vec(raw: &[u8]) -> Vec<u16> {
         debug_assert!(raw.len() % 2 == 0);
         let n = raw.len() / 2;
@@ -754,71 +567,6 @@ fn parse_binaries(
         out
     }
 
-    #[inline]
-    fn decode_a1_array(
-        container: &[u8],
-        comp_buf_start: usize,
-        dir: &[BlockDirEntry],
-        cache: &mut [Option<Vec<u8>>],
-        scratch: &mut Vec<u8>,
-        block_elem_sizes: &mut [usize],
-        block_id: u32,
-        element_off: u64,
-        len_elements: u64,
-        elem_size: usize,
-        nt: NumericType,
-        compression_level: u8,
-        array_filter: u8,
-        field: &'static str,
-    ) -> Result<ArrayData, String> {
-        ensure_block(
-            container,
-            comp_buf_start,
-            dir,
-            cache,
-            scratch,
-            block_elem_sizes,
-            block_id,
-            elem_size,
-            compression_level,
-            array_filter,
-            field,
-        )?;
-
-        let raw = cache[block_id as usize].as_ref().unwrap().as_slice();
-
-        let off_elems =
-            usize::try_from(element_off).map_err(|_| format!("{field}: element_off overflow"))?;
-        let len_elems =
-            usize::try_from(len_elements).map_err(|_| format!("{field}: len_element overflow"))?;
-
-        let off_bytes = off_elems
-            .checked_mul(elem_size)
-            .ok_or_else(|| format!("{field}: off_bytes overflow"))?;
-        let len_bytes = len_elems
-            .checked_mul(elem_size)
-            .ok_or_else(|| format!("{field}: len_bytes overflow"))?;
-
-        let end = off_bytes
-            .checked_add(len_bytes)
-            .ok_or_else(|| format!("{field}: slice end overflow"))?;
-
-        if end > raw.len() {
-            return Err(format!("{field}: array slice out of bounds"));
-        }
-
-        let slice = &raw[off_bytes..end];
-
-        Ok(match nt {
-            NumericType::Float16 => ArrayData::F16(bytes_to_u16_vec(slice)),
-            NumericType::Float32 => ArrayData::F32(bytes_to_f32_vec(slice)),
-            NumericType::Float64 => ArrayData::F64(bytes_to_f64_vec(slice)),
-            NumericType::Int16 => ArrayData::I16(bytes_to_i16_vec(slice)),
-            NumericType::Int32 => ArrayData::I32(bytes_to_i32_vec(slice)),
-            NumericType::Int64 => ArrayData::I64(bytes_to_i64_vec(slice)),
-        })
-    }
-
     let spec_entries = parse_a0_section(
         bytes,
         header.off_spec_entries,
@@ -863,19 +611,21 @@ fn parse_binaries(
         "container_chrom",
     )?;
 
-    let (dir_spect, comp_start_spect) =
-        parse_container_dir(container_spect, header.block_count_spect, "container_spect")?;
-    let (dir_chrom, comp_start_chrom) =
-        parse_container_dir(container_chrom, header.block_count_chrom, "container_chrom")?;
+    let mut spect_view = ContainerView::new(
+        container_spect,
+        header.block_count_spect,
+        header.compression_level,
+        header.array_filter,
+        "container_spect",
+    )?;
 
-    let mut cache_spect: Vec<Option<Vec<u8>>> = vec![None; header.block_count_spect as usize];
-    let mut cache_chrom: Vec<Option<Vec<u8>>> = vec![None; header.block_count_chrom as usize];
-
-    let mut scratch_spect: Vec<u8> = Vec::new();
-    let mut scratch_chrom: Vec<u8> = Vec::new();
-
-    let mut block_elem_spect: Vec<usize> = vec![0; header.block_count_spect as usize];
-    let mut block_elem_chrom: Vec<usize> = vec![0; header.block_count_chrom as usize];
+    let mut chrom_view = ContainerView::new(
+        container_chrom,
+        header.block_count_chrom,
+        header.compression_level,
+        header.array_filter,
+        "container_chrom",
+    )?;
 
     let spec_count = header.spectrum_count as usize;
     let mut spectra_arrays: Vec<Option<Vec<(u32, ArrayData)>>> = vec![None; spec_count];
@@ -896,25 +646,27 @@ fn parse_binaries(
 
         let mut arrays: Vec<(u32, ArrayData)> = Vec::with_capacity(count);
 
-        for r in &spec_a1[start..end] {
-            let (elem_size, nt) = dtype_to_layout(r.dtype, "A1.dtype")?;
-            let data = decode_a1_array(
-                container_spect,
-                comp_start_spect,
-                &dir_spect,
-                &mut cache_spect,
-                &mut scratch_spect,
-                &mut block_elem_spect,
-                r.block_id,
-                r.element_off,
-                r.len_elements,
-                elem_size,
-                nt,
-                header.compression_level,
-                header.array_filter,
+        for array_ref in &spec_a1[start..end] {
+            let (element_size_bytes, numeric_type) = dtype_to_layout(array_ref.dtype, "A1.dtype")?;
+
+            let raw = spect_view.get_item_from_block(
+                array_ref.block_id,
+                array_ref.element_off,
+                array_ref.len_elements,
+                element_size_bytes,
                 "container_spect",
             )?;
-            arrays.push((r.array_type, data));
+
+            let data = match numeric_type {
+                NumericType::Float16 => ArrayData::F16(bytes_to_u16_vec(raw)),
+                NumericType::Float32 => ArrayData::F32(bytes_to_f32_vec(raw)),
+                NumericType::Float64 => ArrayData::F64(bytes_to_f64_vec(raw)),
+                NumericType::Int16 => ArrayData::I16(bytes_to_i16_vec(raw)),
+                NumericType::Int32 => ArrayData::I32(bytes_to_i32_vec(raw)),
+                NumericType::Int64 => ArrayData::I64(bytes_to_i64_vec(raw)),
+            };
+
+            arrays.push((array_ref.array_type, data));
         }
 
         spectra_arrays[i] = Some(arrays);
@@ -939,25 +691,27 @@ fn parse_binaries(
 
         let mut arrays: Vec<(u32, ArrayData)> = Vec::with_capacity(count);
 
-        for r in &chrom_a1[start..end] {
-            let (elem_size, nt) = dtype_to_layout(r.dtype, "B1.dtype")?;
-            let data = decode_a1_array(
-                container_chrom,
-                comp_start_chrom,
-                &dir_chrom,
-                &mut cache_chrom,
-                &mut scratch_chrom,
-                &mut block_elem_chrom,
-                r.block_id,
-                r.element_off,
-                r.len_elements,
-                elem_size,
-                nt,
-                header.compression_level,
-                header.array_filter,
+        for array_ref in &chrom_a1[start..end] {
+            let (element_size_bytes, numeric_type) = dtype_to_layout(array_ref.dtype, "B1.dtype")?;
+
+            let raw = chrom_view.get_item_from_block(
+                array_ref.block_id,
+                array_ref.element_off,
+                array_ref.len_elements,
+                element_size_bytes,
                 "container_chrom",
             )?;
-            arrays.push((r.array_type, data));
+
+            let data = match numeric_type {
+                NumericType::Float16 => ArrayData::F16(bytes_to_u16_vec(raw)),
+                NumericType::Float32 => ArrayData::F32(bytes_to_f32_vec(raw)),
+                NumericType::Float64 => ArrayData::F64(bytes_to_f64_vec(raw)),
+                NumericType::Int16 => ArrayData::I16(bytes_to_i16_vec(raw)),
+                NumericType::Int32 => ArrayData::I32(bytes_to_i32_vec(raw)),
+                NumericType::Int64 => ArrayData::I64(bytes_to_i64_vec(raw)),
+            };
+
+            arrays.push((array_ref.array_type, data));
         }
 
         chrom_arrays[i] = Some(arrays);
