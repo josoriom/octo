@@ -1,6 +1,9 @@
 use crate::{
     CvParam, UserParam,
-    b64::utilities::common::{OwnerRows, is_cv_prefix, unit_cv_ref, value_to_opt_string},
+    b64::utilities::{
+        children_lookup::OwnerRows,
+        common::{is_cv_prefix, unit_cv_ref, value_to_opt_string},
+    },
     decode::Metadatum,
     mzml::{attr_meta::CV_REF_ATTR, cv_table},
 };
@@ -14,7 +17,7 @@ where
     let mut groups: OwnerRows<'m> = OwnerRows::new();
 
     for m in iter {
-        groups.entry(m.owner_id).or_default().push(m);
+        groups.entry(m.id).or_default().push(m);
     }
 
     if groups.is_empty() {

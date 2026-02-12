@@ -1,11 +1,7 @@
-use std::collections::HashMap;
-
 use crate::{
     b64::utilities::{
-        common::{
-            ChildIndex, OwnerRows, ParseCtx, b000_attr_text, child_params_for_parent,
-            ids_for_parent, rows_for_owner, unique_ids,
-        },
+        children_lookup::{ChildrenLookup, OwnerRows},
+        common::b000_attr_text,
         parse_cv_and_user_params,
     },
     decode::Metadatum,
@@ -19,51 +15,39 @@ use crate::{
     },
 };
 
-/// <instrumentConfigurationList>
 #[inline]
 pub fn parse_instrument_list(
     metadata: &[&Metadatum],
-    child_index: &ChildIndex,
+    children_lookup: &ChildrenLookup,
 ) -> Option<InstrumentList> {
-    let mut owner_rows: OwnerRows<'_> = HashMap::with_capacity(metadata.len());
+    let mut owner_rows: OwnerRows<'_> = OwnerRows::with_capacity(metadata.len());
 
     let mut list_id: Option<u32> = None;
-    let mut fallback_list_id: Option<u32> = None;
-
     for &m in metadata {
-        owner_rows.entry(m.owner_id).or_default().push(m);
-
-        match m.tag_id {
-            TagId::InstrumentConfigurationList => {
-                if list_id.is_none() {
-                    list_id = Some(m.owner_id);
-                }
-            }
-            TagId::Instrument => {
-                if fallback_list_id.is_none() {
-                    fallback_list_id = Some(m.parent_index);
-                }
-            }
-            _ => {}
+        owner_rows.entry(m.id).or_default().push(m);
+        if list_id.is_none() && m.tag_id == TagId::InstrumentConfigurationList {
+            list_id = Some(m.id);
         }
     }
 
-    let list_id = list_id.or(fallback_list_id)?;
-
-    let ctx = ParseCtx {
-        metadata,
-        child_index,
-        owner_rows: &owner_rows,
+    let instrument_ids = if let Some(list_id) = list_id {
+        let ids = children_lookup.ids_for(metadata, list_id, TagId::Instrument);
+        if ids.is_empty() {
+            ChildrenLookup::all_ids(metadata, TagId::Instrument)
+        } else {
+            ids
+        }
+    } else {
+        ChildrenLookup::all_ids(metadata, TagId::Instrument)
     };
 
-    let instrument_ids = ids_for_parent(&ctx, list_id, TagId::Instrument);
     if instrument_ids.is_empty() {
         return None;
     }
 
     let mut instrument = Vec::with_capacity(instrument_ids.len());
     for id in instrument_ids {
-        instrument.push(parse_instrument(&ctx, id));
+        instrument.push(parse_instrument(metadata, children_lookup, &owner_rows, id));
     }
 
     Some(InstrumentList {
@@ -72,10 +56,14 @@ pub fn parse_instrument_list(
     })
 }
 
-/// <instrumentConfiguration>
 #[inline]
-fn parse_instrument(ctx: &ParseCtx<'_>, instrument_id: u32) -> Instrument {
-    let rows = rows_for_owner(ctx.owner_rows, instrument_id);
+fn parse_instrument<'m>(
+    metadata: &[&'m Metadatum],
+    children_lookup: &ChildrenLookup,
+    owner_rows: &OwnerRows<'m>,
+    instrument_id: u32,
+) -> Instrument {
+    let rows = ChildrenLookup::rows_for_owner(owner_rows, instrument_id);
 
     let id = b000_attr_text(rows, ACC_ATTR_ID).unwrap_or_default();
 
@@ -84,22 +72,22 @@ fn parse_instrument(ctx: &ParseCtx<'_>, instrument_id: u32) -> Instrument {
         .map(|s| ScanSettingsRef { r#ref: s });
 
     let referenceable_param_group_ref =
-        parse_referenceable_param_group_refs(ctx.owner_rows, ctx.child_index, instrument_id);
+        parse_referenceable_param_group_refs(metadata, children_lookup, owner_rows, instrument_id);
 
-    let child_meta = child_params_for_parent(ctx.owner_rows, ctx.child_index, instrument_id);
+    let child_meta = children_lookup.param_rows(metadata, owner_rows, instrument_id);
 
     let (cv_param, user_param) = if child_meta.is_empty() {
         parse_cv_and_user_params(rows)
     } else {
-        let mut params_meta: Vec<&Metadatum> = Vec::with_capacity(rows.len() + child_meta.len());
+        let mut params_meta = Vec::with_capacity(rows.len() + child_meta.len());
         params_meta.extend_from_slice(rows);
         params_meta.extend(child_meta);
         parse_cv_and_user_params(&params_meta)
     };
 
-    let component_list = parse_component_list(ctx, instrument_id);
-
-    let software_ref = parse_instrument_software_ref(ctx, instrument_id);
+    let component_list = parse_component_list(metadata, children_lookup, owner_rows, instrument_id);
+    let software_ref =
+        parse_instrument_software_ref(metadata, children_lookup, owner_rows, instrument_id);
 
     Instrument {
         id,
@@ -112,11 +100,18 @@ fn parse_instrument(ctx: &ParseCtx<'_>, instrument_id: u32) -> Instrument {
     }
 }
 
-/// <componentList>
 #[inline]
-fn parse_component_list(ctx: &ParseCtx<'_>, instrument_id: u32) -> Option<ComponentList> {
-    let component_list_ids = ids_for_parent(ctx, instrument_id, TagId::ComponentList);
-    let component_list_id = component_list_ids.first().copied().unwrap_or(0);
+fn parse_component_list<'m>(
+    metadata: &[&'m Metadatum],
+    children_lookup: &ChildrenLookup,
+    owner_rows: &OwnerRows<'m>,
+    instrument_id: u32,
+) -> Option<ComponentList> {
+    let component_list_id = children_lookup
+        .ids_for(metadata, instrument_id, TagId::ComponentList)
+        .first()
+        .copied()
+        .unwrap_or(0);
 
     let primary_parent = if component_list_id != 0 {
         component_list_id
@@ -124,18 +119,20 @@ fn parse_component_list(ctx: &ParseCtx<'_>, instrument_id: u32) -> Option<Compon
         instrument_id
     };
 
-    let mut source_ids = ids_for_parent(ctx, primary_parent, TagId::ComponentSource);
-    let mut analyzer_ids = ids_for_parent(ctx, primary_parent, TagId::ComponentAnalyzer);
-    let mut detector_ids = ids_for_parent(ctx, primary_parent, TagId::ComponentDetector);
+    let mut source_ids = children_lookup.ids_for(metadata, primary_parent, TagId::ComponentSource);
+    let mut analyzer_ids =
+        children_lookup.ids_for(metadata, primary_parent, TagId::ComponentAnalyzer);
+    let mut detector_ids =
+        children_lookup.ids_for(metadata, primary_parent, TagId::ComponentDetector);
 
     if source_ids.is_empty()
         && analyzer_ids.is_empty()
         && detector_ids.is_empty()
         && primary_parent != instrument_id
     {
-        source_ids = ids_for_parent(ctx, instrument_id, TagId::ComponentSource);
-        analyzer_ids = ids_for_parent(ctx, instrument_id, TagId::ComponentAnalyzer);
-        detector_ids = ids_for_parent(ctx, instrument_id, TagId::ComponentDetector);
+        source_ids = children_lookup.ids_for(metadata, instrument_id, TagId::ComponentSource);
+        analyzer_ids = children_lookup.ids_for(metadata, instrument_id, TagId::ComponentAnalyzer);
+        detector_ids = children_lookup.ids_for(metadata, instrument_id, TagId::ComponentDetector);
     }
 
     if source_ids.is_empty() && analyzer_ids.is_empty() && detector_ids.is_empty() {
@@ -144,17 +141,17 @@ fn parse_component_list(ctx: &ParseCtx<'_>, instrument_id: u32) -> Option<Compon
 
     let mut source = Vec::with_capacity(source_ids.len());
     for id in source_ids {
-        source.push(parse_source(ctx, id));
+        source.push(parse_source(metadata, children_lookup, owner_rows, id));
     }
 
     let mut analyzer = Vec::with_capacity(analyzer_ids.len());
     for id in analyzer_ids {
-        analyzer.push(parse_analyzer(ctx, id));
+        analyzer.push(parse_analyzer(metadata, children_lookup, owner_rows, id));
     }
 
     let mut detector = Vec::with_capacity(detector_ids.len());
     for id in detector_ids {
-        detector.push(parse_detector(ctx, id));
+        detector.push(parse_detector(metadata, children_lookup, owner_rows, id));
     }
 
     Some(ComponentList {
@@ -165,22 +162,26 @@ fn parse_component_list(ctx: &ParseCtx<'_>, instrument_id: u32) -> Option<Compon
     })
 }
 
-/// <source>
 #[inline]
-fn parse_source(ctx: &ParseCtx<'_>, source_id: u32) -> Source {
-    let rows = rows_for_owner(ctx.owner_rows, source_id);
+fn parse_source<'m>(
+    metadata: &[&'m Metadatum],
+    children_lookup: &ChildrenLookup,
+    owner_rows: &OwnerRows<'m>,
+    source_id: u32,
+) -> Source {
+    let rows = ChildrenLookup::rows_for_owner(owner_rows, source_id);
 
     let order = b000_attr_text(rows, ACC_ATTR_ORDER).and_then(|s| s.parse::<u32>().ok());
 
     let referenceable_param_group_ref =
-        parse_referenceable_param_group_refs(ctx.owner_rows, ctx.child_index, source_id);
+        parse_referenceable_param_group_refs(metadata, children_lookup, owner_rows, source_id);
 
-    let child_meta = child_params_for_parent(ctx.owner_rows, ctx.child_index, source_id);
+    let child_meta = children_lookup.param_rows(metadata, owner_rows, source_id);
 
     let (cv_param, user_param) = if child_meta.is_empty() {
         parse_cv_and_user_params(rows)
     } else {
-        let mut params_meta: Vec<&Metadatum> = Vec::with_capacity(rows.len() + child_meta.len());
+        let mut params_meta = Vec::with_capacity(rows.len() + child_meta.len());
         params_meta.extend_from_slice(rows);
         params_meta.extend(child_meta);
         parse_cv_and_user_params(&params_meta)
@@ -194,22 +195,26 @@ fn parse_source(ctx: &ParseCtx<'_>, source_id: u32) -> Source {
     }
 }
 
-/// <analyzer>
 #[inline]
-fn parse_analyzer(ctx: &ParseCtx<'_>, analyzer_id: u32) -> Analyzer {
-    let rows = rows_for_owner(ctx.owner_rows, analyzer_id);
+fn parse_analyzer<'m>(
+    metadata: &[&'m Metadatum],
+    children_lookup: &ChildrenLookup,
+    owner_rows: &OwnerRows<'m>,
+    analyzer_id: u32,
+) -> Analyzer {
+    let rows = ChildrenLookup::rows_for_owner(owner_rows, analyzer_id);
 
     let order = b000_attr_text(rows, ACC_ATTR_ORDER).and_then(|s| s.parse::<u32>().ok());
 
     let referenceable_param_group_ref =
-        parse_referenceable_param_group_refs(ctx.owner_rows, ctx.child_index, analyzer_id);
+        parse_referenceable_param_group_refs(metadata, children_lookup, owner_rows, analyzer_id);
 
-    let child_meta = child_params_for_parent(ctx.owner_rows, ctx.child_index, analyzer_id);
+    let child_meta = children_lookup.param_rows(metadata, owner_rows, analyzer_id);
 
     let (cv_param, user_param) = if child_meta.is_empty() {
         parse_cv_and_user_params(rows)
     } else {
-        let mut params_meta: Vec<&Metadatum> = Vec::with_capacity(rows.len() + child_meta.len());
+        let mut params_meta = Vec::with_capacity(rows.len() + child_meta.len());
         params_meta.extend_from_slice(rows);
         params_meta.extend(child_meta);
         parse_cv_and_user_params(&params_meta)
@@ -223,22 +228,26 @@ fn parse_analyzer(ctx: &ParseCtx<'_>, analyzer_id: u32) -> Analyzer {
     }
 }
 
-/// <detector>
 #[inline]
-fn parse_detector(ctx: &ParseCtx<'_>, detector_id: u32) -> Detector {
-    let rows = rows_for_owner(ctx.owner_rows, detector_id);
+fn parse_detector<'m>(
+    metadata: &[&'m Metadatum],
+    children_lookup: &ChildrenLookup,
+    owner_rows: &OwnerRows<'m>,
+    detector_id: u32,
+) -> Detector {
+    let rows = ChildrenLookup::rows_for_owner(owner_rows, detector_id);
 
     let order = b000_attr_text(rows, ACC_ATTR_ORDER).and_then(|s| s.parse::<u32>().ok());
 
     let referenceable_param_group_ref =
-        parse_referenceable_param_group_refs(ctx.owner_rows, ctx.child_index, detector_id);
+        parse_referenceable_param_group_refs(metadata, children_lookup, owner_rows, detector_id);
 
-    let child_meta = child_params_for_parent(ctx.owner_rows, ctx.child_index, detector_id);
+    let child_meta = children_lookup.param_rows(metadata, owner_rows, detector_id);
 
     let (cv_param, user_param) = if child_meta.is_empty() {
         parse_cv_and_user_params(rows)
     } else {
-        let mut params_meta: Vec<&Metadatum> = Vec::with_capacity(rows.len() + child_meta.len());
+        let mut params_meta = Vec::with_capacity(rows.len() + child_meta.len());
         params_meta.extend_from_slice(rows);
         params_meta.extend(child_meta);
         parse_cv_and_user_params(&params_meta)
@@ -252,44 +261,48 @@ fn parse_detector(ctx: &ParseCtx<'_>, detector_id: u32) -> Detector {
     }
 }
 
-/// <instrumentSoftwareRef> / <softwareRef>
 #[inline]
-fn parse_instrument_software_ref(
-    ctx: &ParseCtx<'_>,
+fn parse_instrument_software_ref<'m>(
+    metadata: &[&'m Metadatum],
+    children_lookup: &ChildrenLookup,
+    owner_rows: &OwnerRows<'m>,
     instrument_id: u32,
 ) -> Option<InstrumentSoftwareRef> {
-    let software_ref_ids = ids_for_parent(ctx, instrument_id, TagId::SoftwareRef);
-    let software_ref_id = software_ref_ids.first().copied().unwrap_or(0);
+    let software_ref_id = children_lookup
+        .ids_for(metadata, instrument_id, TagId::SoftwareRef)
+        .first()
+        .copied()
+        .unwrap_or(0);
+
     if software_ref_id == 0 {
         return None;
     }
 
-    let rows = rows_for_owner(ctx.owner_rows, software_ref_id);
+    let rows = ChildrenLookup::rows_for_owner(owner_rows, software_ref_id);
     let r#ref = b000_attr_text(rows, ACC_ATTR_REF)?;
     (!r#ref.is_empty()).then(|| InstrumentSoftwareRef { r#ref })
 }
 
-/// <referenceableParamGroupRef>
 #[inline]
-fn parse_referenceable_param_group_refs(
-    owner_rows: &HashMap<u32, Vec<&Metadatum>>,
-    child_index: &ChildIndex,
+fn parse_referenceable_param_group_refs<'m>(
+    metadata: &[&'m Metadatum],
+    children_lookup: &ChildrenLookup,
+    owner_rows: &OwnerRows<'m>,
     parent_id: u32,
 ) -> Vec<ReferenceableParamGroupRef> {
-    let ref_ids = unique_ids(child_index.ids(parent_id, TagId::ReferenceableParamGroupRef));
+    let ref_ids = children_lookup.ids_for(metadata, parent_id, TagId::ReferenceableParamGroupRef);
     if ref_ids.is_empty() {
         return Vec::new();
     }
 
-    let mut out: Vec<ReferenceableParamGroupRef> = Vec::with_capacity(ref_ids.len());
+    let mut out = Vec::with_capacity(ref_ids.len());
     for ref_id in ref_ids {
-        let ref_rows = rows_for_owner(owner_rows, ref_id);
+        let ref_rows = ChildrenLookup::rows_for_owner(owner_rows, ref_id);
         if let Some(r) = b000_attr_text(ref_rows, ACC_ATTR_REF) {
             if !r.is_empty() {
                 out.push(ReferenceableParamGroupRef { r#ref: r });
             }
         }
     }
-
     out
 }

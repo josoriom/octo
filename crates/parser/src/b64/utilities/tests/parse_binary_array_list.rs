@@ -102,10 +102,7 @@ fn first_chrom_cv_params_item_by_item() {
     let mut by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
     for m in &meta {
         if m.tag_id == TagId::BinaryDataArray {
-            by_parent
-                .entry(m.parent_index)
-                .or_default()
-                .insert(m.owner_id);
+            by_parent.entry(m.parent_index).or_default().insert(m.id);
         }
     }
 
@@ -318,10 +315,7 @@ fn second_chrom_cv_params_item_by_item() {
     let mut by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
     for m in &meta {
         if m.tag_id == TagId::BinaryDataArray {
-            by_parent
-                .entry(m.parent_index)
-                .or_default()
-                .insert(m.owner_id);
+            by_parent.entry(m.parent_index).or_default().insert(m.id);
         }
     }
 
@@ -533,10 +527,7 @@ fn first_spectrum_cv_params_item_by_item() {
     let mut by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
     for m in &meta {
         if m.tag_id == TagId::BinaryDataArray {
-            by_parent
-                .entry(m.parent_index)
-                .or_default()
-                .insert(m.owner_id);
+            by_parent.entry(m.parent_index).or_default().insert(m.id);
         }
     }
 
@@ -695,10 +686,7 @@ fn second_spectrum_cv_params_item_by_item() {
     let mut by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
     for m in &meta {
         if m.tag_id == TagId::BinaryDataArray {
-            by_parent
-                .entry(m.parent_index)
-                .or_default()
-                .insert(m.owner_id);
+            by_parent.entry(m.parent_index).or_default().insert(m.id);
         }
     }
 

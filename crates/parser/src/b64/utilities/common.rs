@@ -1,5 +1,3 @@
-use std::collections::{HashMap, HashSet};
-
 use zstd::zstd_safe;
 
 use crate::{
@@ -143,29 +141,6 @@ pub fn decompress_zstd(comp: &[u8], expected: usize) -> Result<Vec<u8>, String> 
     }
 
     Ok(out)
-}
-
-#[inline]
-pub fn find_node_by_tag<'a>(schema: &'a Schema, tag: TagId) -> Option<&'a SchemaNode> {
-    if let Some(n) = schema.root_by_tag(tag) {
-        return Some(n);
-    }
-
-    for root in schema.roots.values() {
-        let mut stack: Vec<&SchemaNode> = Vec::new();
-        stack.push(root);
-
-        while let Some(node) = stack.pop() {
-            if node.self_tags.iter().any(|&t| t == tag) {
-                return Some(node);
-            }
-            for child in node.children.values() {
-                stack.push(child);
-            }
-        }
-    }
-
-    None
 }
 
 #[inline]
@@ -336,149 +311,26 @@ pub fn is_y_array(bda: &BinaryDataArray) -> bool {
 }
 
 #[inline]
-pub fn ordered_unique_owner_ids(metadata: &[&Metadatum], tag: TagId) -> Vec<u32> {
-    let mut out = Vec::new();
-    let mut seen = HashSet::with_capacity(metadata.len().min(1024));
-
-    for m in metadata {
-        if m.tag_id == tag && seen.insert(m.owner_id) {
-            out.push(m.owner_id);
-        }
+pub fn find_node_by_tag<'a>(schema: &'a Schema, tag: TagId) -> Option<&'a SchemaNode> {
+    if let Some(n) = schema.root_by_tag(tag) {
+        return Some(n);
     }
 
-    out
-}
+    for root in schema.roots.values() {
+        let mut stack: Vec<&SchemaNode> = Vec::new();
+        stack.push(root);
 
-#[inline]
-pub fn collect_subtree_owner_ids(
-    root_id: u32,
-    children_by_parent: &HashMap<u32, Vec<u32>>,
-) -> HashSet<u32> {
-    let mut out = HashSet::new();
-    let mut stack = Vec::new();
-    stack.push(root_id);
-
-    while let Some(id) = stack.pop() {
-        if !out.insert(id) {
-            continue;
-        }
-        if let Some(children) = children_by_parent.get(&id) {
-            for &child_id in children {
-                stack.push(child_id);
+        while let Some(node) = stack.pop() {
+            if node.self_tags.iter().any(|&t| t == tag) {
+                return Some(node);
+            }
+            for child in node.children.values() {
+                stack.push(child);
             }
         }
     }
 
-    out
-}
-
-#[inline]
-pub fn key_parent_tag(parent_id: u32, tag: TagId) -> u64 {
-    ((parent_id as u64) << 8) | (tag as u8 as u64)
-}
-
-pub struct ChildIndex {
-    ids_by_parent_tag: HashMap<u64, Vec<u32>>,
-    children_by_parent: HashMap<u32, Vec<u32>>,
-}
-
-impl ChildIndex {
-    #[inline]
-    pub fn new(metadata: &[Metadatum]) -> Self {
-        let mut ids_count: HashMap<u64, usize> = HashMap::with_capacity(metadata.len());
-        let mut children_count: HashMap<u32, usize> = HashMap::with_capacity(metadata.len());
-
-        for m in metadata {
-            *ids_count
-                .entry(key_parent_tag(m.parent_index, m.tag_id))
-                .or_insert(0) += 1;
-            *children_count.entry(m.parent_index).or_insert(0) += 1;
-        }
-
-        let mut ids_by_parent_tag: HashMap<u64, Vec<u32>> = HashMap::with_capacity(ids_count.len());
-        for (k, c) in ids_count {
-            ids_by_parent_tag.insert(k, Vec::with_capacity(c));
-        }
-
-        let mut children_by_parent: HashMap<u32, Vec<u32>> =
-            HashMap::with_capacity(children_count.len());
-        for (k, c) in children_count {
-            children_by_parent.insert(k, Vec::with_capacity(c));
-        }
-
-        for m in metadata {
-            let k = key_parent_tag(m.parent_index, m.tag_id);
-            ids_by_parent_tag.get_mut(&k).unwrap().push(m.owner_id);
-            children_by_parent
-                .get_mut(&m.parent_index)
-                .unwrap()
-                .push(m.owner_id);
-        }
-
-        Self {
-            ids_by_parent_tag,
-            children_by_parent,
-        }
-    }
-
-    #[inline]
-    pub fn ids(&self, parent_id: u32, tag: TagId) -> &[u32] {
-        self.ids_by_parent_tag
-            .get(&key_parent_tag(parent_id, tag))
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
-    }
-
-    #[inline]
-    pub fn first_id(&self, parent_id: u32, tag: TagId) -> Option<u32> {
-        self.ids(parent_id, tag).first().copied()
-    }
-
-    #[inline]
-    pub fn children(&self, parent_id: u32) -> &[u32] {
-        self.children_by_parent
-            .get(&parent_id)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
-    }
-
-    #[inline]
-    pub fn new_from_refs(metadata: &[&Metadatum]) -> Self {
-        let mut ids_count: HashMap<u64, usize> = HashMap::with_capacity(metadata.len());
-        let mut children_count: HashMap<u32, usize> = HashMap::with_capacity(metadata.len());
-
-        for &m in metadata {
-            *ids_count
-                .entry(key_parent_tag(m.parent_index, m.tag_id))
-                .or_insert(0) += 1;
-            *children_count.entry(m.parent_index).or_insert(0) += 1;
-        }
-
-        let mut ids_by_parent_tag: HashMap<u64, Vec<u32>> = HashMap::with_capacity(ids_count.len());
-        for (k, c) in ids_count {
-            ids_by_parent_tag.insert(k, Vec::with_capacity(c));
-        }
-
-        let mut children_by_parent: HashMap<u32, Vec<u32>> =
-            HashMap::with_capacity(children_count.len());
-        for (k, c) in children_count {
-            children_by_parent.insert(k, Vec::with_capacity(c));
-        }
-
-        for &m in metadata {
-            let k = key_parent_tag(m.parent_index, m.tag_id);
-            ids_by_parent_tag.get_mut(&k).unwrap().push(m.owner_id);
-            children_by_parent
-                .get_mut(&m.parent_index)
-                .unwrap()
-                .push(m.owner_id);
-        }
-
-        Self {
-            ids_by_parent_tag,
-            children_by_parent,
-        }
-    }
+    None
 }
 
 #[inline]
@@ -499,117 +351,6 @@ pub fn value_as_u32(v: &MetadatumValue) -> Option<u32> {
         }
         MetadatumValue::Empty => None,
     }
-}
-
-pub type OwnerRows<'a> = HashMap<u32, Vec<&'a Metadatum>>;
-
-pub struct ParseCtx<'a> {
-    pub metadata: &'a [&'a Metadatum],
-    pub child_index: &'a ChildIndex,
-    pub owner_rows: &'a OwnerRows<'a>,
-}
-
-#[inline]
-pub fn ids_for_parent(ctx: &ParseCtx<'_>, parent_id: u32, tag_id: TagId) -> Vec<u32> {
-    let mut ids = unique_ids(ctx.child_index.ids(parent_id, tag_id));
-    if ids.is_empty() {
-        ids = ordered_unique_owner_ids(ctx.metadata, tag_id);
-        ids.retain(|&id| is_child_of(ctx.owner_rows, id, parent_id));
-    }
-    ids
-}
-
-#[inline]
-pub fn ids_for_parent_tags(ctx: &ParseCtx<'_>, parent_id: u32, tags: &[TagId]) -> Vec<u32> {
-    let mut combined: Vec<u32> = Vec::new();
-    for &tag in tags {
-        combined.extend_from_slice(ctx.child_index.ids(parent_id, tag));
-    }
-
-    let mut ids = unique_ids(&combined);
-    if ids.is_empty() {
-        for &tag in tags {
-            ids.extend(ordered_unique_owner_ids(ctx.metadata, tag));
-        }
-        ids.retain(|&id| is_child_of(ctx.owner_rows, id, parent_id));
-        ids.sort_unstable();
-        ids.dedup();
-    }
-
-    ids
-}
-
-#[inline]
-pub fn unique_ids(ids: &[u32]) -> Vec<u32> {
-    let mut out = Vec::with_capacity(ids.len());
-    let mut seen = HashSet::with_capacity(ids.len());
-    for &id in ids {
-        if seen.insert(id) {
-            out.push(id);
-        }
-    }
-    out
-}
-
-#[inline]
-pub fn rows_for_owner<'a>(
-    owner_rows: &'a HashMap<u32, Vec<&'a Metadatum>>,
-    owner_id: u32,
-) -> &'a [&'a Metadatum] {
-    owner_rows
-        .get(&owner_id)
-        .map(|v| v.as_slice())
-        .unwrap_or(&[])
-}
-
-#[inline]
-pub fn child_params_for_parent<'a>(
-    owner_rows: &HashMap<u32, Vec<&'a Metadatum>>,
-    child_index: &ChildIndex,
-    parent_id: u32,
-) -> Vec<&'a Metadatum> {
-    let cv_ids = child_index.ids(parent_id, TagId::CvParam);
-    let up_ids = child_index.ids(parent_id, TagId::UserParam);
-
-    let mut out = Vec::with_capacity(cv_ids.len() + up_ids.len());
-
-    for &id in cv_ids {
-        if let Some(rows) = owner_rows.get(&id) {
-            out.extend(rows.iter().copied());
-        }
-    }
-    for &id in up_ids {
-        if let Some(rows) = owner_rows.get(&id) {
-            out.extend(rows.iter().copied());
-        }
-    }
-
-    out
-}
-
-#[inline]
-pub fn allowed_from_rows<'a>(rows: &[&'a Metadatum]) -> HashSet<&'a str> {
-    let mut allowed = HashSet::new();
-    for m in rows {
-        if let Some(acc) = m.accession.as_deref() {
-            if !acc.starts_with("B000:") {
-                allowed.insert(acc);
-            }
-        }
-    }
-    allowed
-}
-
-#[inline]
-pub fn is_child_of(
-    owner_rows: &HashMap<u32, Vec<&Metadatum>>,
-    child_id: u32,
-    parent_id: u32,
-) -> bool {
-    rows_for_owner(owner_rows, child_id)
-        .first()
-        .map(|m| m.parent_index == parent_id)
-        .unwrap_or(false)
 }
 
 #[inline]

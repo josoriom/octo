@@ -1,13 +1,17 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 use crate::{
     b64::utilities::{
-        Header, common::*, container::ContainerView, parse_chromatogram_list,
-        parse_cv_and_user_params, parse_cv_list, parse_data_processing_list,
+        Header,
+        children_lookup::{ChildrenLookup, OwnerRows},
+        common::{b000_attr_text, parse_accession_tail, parse_accession_tail_str, take},
+        container::ContainerView,
+        parse_chromatogram_list, parse_cv_and_user_params, parse_cv_list,
+        parse_data_processing_list,
         parse_file_description::parse_file_description,
-        parse_global_metadata::parse_global_metadata, parse_header, parse_instrument_list,
-        parse_metadata, parse_referenceable_param_group_list, parse_sample_list,
-        parse_scan_settings_list, parse_software_list, parse_spectrum_list,
+        parse_global_metadata::parse_global_metadata,
+        parse_header, parse_instrument_list, parse_metadata, parse_referenceable_param_group_list,
+        parse_sample_list, parse_scan_settings_list, parse_software_list, parse_spectrum_list,
     },
     mzml::{attr_meta::*, schema::TagId, structs::*},
 };
@@ -25,25 +29,25 @@ const ACC_64BIT_INTEGER: u32 = 1_000_522;
 pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
     let header = parse_header(bytes)?;
     let global_meta = parse_global_metadata_section(bytes, &header)?;
-    let global_child_index = ChildIndex::new(&global_meta);
+    let global_children_lookup = ChildrenLookup::new(&global_meta);
 
     let global_meta_ref: Vec<&Metadatum> = global_meta.iter().collect();
 
-    let cv_list = parse_cv_list(&global_meta_ref, &global_child_index);
+    let cv_list = parse_cv_list(&global_meta_ref, &global_children_lookup);
 
     Ok(MzML {
         cv_list,
-        file_description: parse_file_description(&global_meta_ref, &global_child_index)
+        file_description: parse_file_description(&global_meta_ref, &global_children_lookup)
             .expect("missing <fileDescription> in global metadata"),
         referenceable_param_group_list: parse_referenceable_param_group_list(
             &global_meta_ref,
-            &global_child_index,
+            &global_children_lookup,
         ),
-        sample_list: parse_sample_list(&global_meta_ref, &global_child_index),
-        instrument_list: parse_instrument_list(&global_meta_ref, &global_child_index),
-        software_list: parse_software_list(&global_meta_ref, &global_child_index),
-        data_processing_list: parse_data_processing_list(&global_meta_ref, &global_child_index),
-        scan_settings_list: parse_scan_settings_list(&global_meta_ref, &global_child_index),
+        sample_list: parse_sample_list(&global_meta_ref, &global_children_lookup),
+        instrument_list: parse_instrument_list(&global_meta_ref, &global_children_lookup),
+        software_list: parse_software_list(&global_meta_ref, &global_children_lookup),
+        data_processing_list: parse_data_processing_list(&global_meta_ref, &global_children_lookup),
+        scan_settings_list: parse_scan_settings_list(&global_meta_ref, &global_children_lookup),
         run: parse_run(bytes, &header, &global_meta)?,
     })
 }
@@ -72,21 +76,20 @@ fn parse_run(bytes: &[u8], header: &Header, global_meta: &[Metadatum]) -> Result
         header.chrom_meta_uncompressed_bytes as usize,
     )?;
 
-    let run_child_index = ChildIndex::new(global_meta);
+    let run_children_lookup = ChildrenLookup::new(global_meta);
 
-    let mut owner_rows: HashMap<u32, Vec<&Metadatum>> =
-        HashMap::with_capacity(global_meta.len() / 2 + 1);
+    let mut owner_rows: OwnerRows = OwnerRows::with_capacity(global_meta.len() / 2 + 1);
     for m in global_meta {
-        owner_rows.entry(m.owner_id).or_default().push(m);
+        owner_rows.entry(m.id).or_default().push(m);
     }
 
     let run_id = global_meta
         .iter()
         .find(|m| m.tag_id == TagId::Run)
-        .map(|m| m.owner_id)
+        .map(|m| m.id)
         .unwrap_or(0);
 
-    let run_rows = rows_for_owner(&owner_rows, run_id);
+    let run_rows = ChildrenLookup::rows_for_owner(&owner_rows, run_id);
 
     let id = b000_attr_text(run_rows, ACC_ATTR_ID).unwrap_or_default();
     let start_time_stamp =
@@ -99,31 +102,29 @@ fn parse_run(bytes: &[u8], header: &Header, global_meta: &[Metadatum]) -> Result
 
     let sample_ref = b000_attr_text(run_rows, ACC_ATTR_SAMPLE_REF).filter(|s| !s.is_empty());
 
-    let mut params_meta = Vec::with_capacity(
-        run_rows.len() + child_params_for_parent(&owner_rows, &run_child_index, run_id).len(),
-    );
+    let global_meta_ref: Vec<&Metadatum> = global_meta.iter().collect();
+
+    let child_param_rows = run_children_lookup.param_rows(&global_meta_ref, &owner_rows, run_id);
+
+    let mut params_meta = Vec::with_capacity(run_rows.len() + child_param_rows.len());
     params_meta.extend(run_rows.iter().copied());
-    params_meta.extend(child_params_for_parent(
-        &owner_rows,
-        &run_child_index,
-        run_id,
-    ));
+    params_meta.extend(child_param_rows);
 
     let (cv_params, user_params) = parse_cv_and_user_params(&params_meta);
 
     let global_meta_ref: Vec<&Metadatum> = global_meta.iter().collect();
 
     let source_file_ref_list =
-        parse_source_file_ref_list(&owner_rows, &run_child_index, &global_meta_ref, run_id);
+        parse_source_file_ref_list(&owner_rows, &run_children_lookup, &global_meta_ref, run_id);
 
-    let spec_child_index = ChildIndex::new(&spec_meta);
-    let chrom_child_index = ChildIndex::new(&chrom_meta);
+    let spec_children_lookup = ChildrenLookup::new(&spec_meta);
+    let chrom_children_lookup = ChildrenLookup::new(&chrom_meta);
 
     let spec_meta_ref: Vec<&Metadatum> = spec_meta.iter().collect();
     let chrom_meta_ref: Vec<&Metadatum> = chrom_meta.iter().collect();
 
-    let spectrum_list = parse_spectrum_list(&spec_meta_ref, &spec_child_index);
-    let chromatogram_list = parse_chromatogram_list(&chrom_meta_ref, &chrom_child_index);
+    let spectrum_list = parse_spectrum_list(&spec_meta_ref, &spec_children_lookup);
+    let chromatogram_list = parse_chromatogram_list(&chrom_meta_ref, &chrom_children_lookup);
 
     let (mut spectra_arrays, mut chrom_arrays) = parse_binaries(bytes, header)?;
 
@@ -278,7 +279,7 @@ pub enum MetadatumValue {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Metadatum {
     pub item_index: u32,
-    pub owner_id: u32,
+    pub id: u32,
     pub parent_index: u32,
     pub tag_id: TagId,
     pub accession: Option<String>,
@@ -339,15 +340,16 @@ fn parse_global_metadata_section(bytes: &[u8], header: &Header) -> Result<Vec<Me
 
 #[inline]
 fn parse_source_file_ref_list(
-    owner_rows: &HashMap<u32, Vec<&Metadatum>>,
-    child_index: &ChildIndex,
+    owner_rows: &OwnerRows,
+    children_lookup: &ChildrenLookup,
     metadata: &[&Metadatum],
     run_id: u32,
 ) -> Option<SourceFileRefList> {
-    let mut list_ids = unique_ids(child_index.ids(run_id, TagId::SourceFileRefList));
+    let mut list_ids =
+        unique_ids(children_lookup.get_children_with_tag(run_id, TagId::SourceFileRefList));
 
     if list_ids.is_empty() {
-        list_ids = ordered_unique_owner_ids(metadata, TagId::SourceFileRefList);
+        list_ids = ChildrenLookup::all_ids(metadata, TagId::SourceFileRefList);
 
         if run_id != 0 && list_ids.len() > 1 {
             let filtered: Vec<u32> = list_ids
@@ -362,14 +364,15 @@ fn parse_source_file_ref_list(
     }
 
     let list_id = list_ids.first().copied()?;
-    let list_rows = rows_for_owner(owner_rows, list_id);
+    let list_rows = ChildrenLookup::rows_for_owner(owner_rows, list_id);
 
     let mut count = b000_attr_text(list_rows, ACC_ATTR_COUNT).and_then(|s| s.parse::<usize>().ok());
 
-    let mut ref_ids = unique_ids(child_index.ids(list_id, TagId::SourceFileRef));
+    let mut ref_ids =
+        unique_ids(children_lookup.get_children_with_tag(list_id, TagId::SourceFileRef));
 
     if ref_ids.is_empty() {
-        ref_ids = ordered_unique_owner_ids(metadata, TagId::SourceFileRef);
+        ref_ids = ChildrenLookup::all_ids(metadata, TagId::SourceFileRef);
 
         if ref_ids.len() > 1 {
             let filtered: Vec<u32> = ref_ids
@@ -385,7 +388,7 @@ fn parse_source_file_ref_list(
 
     let mut source_file_refs = Vec::with_capacity(ref_ids.len());
     for rid in ref_ids {
-        let rows = rows_for_owner(owner_rows, rid);
+        let rows = ChildrenLookup::rows_for_owner(owner_rows, rid);
         if let Some(r) = b000_attr_text(rows, ACC_ATTR_REF) {
             if !r.is_empty() {
                 source_file_refs.push(SourceFileRef { r#ref: r });
@@ -810,4 +813,24 @@ fn attach_pairs_to_run_lists(
             }
         }
     }
+}
+
+#[inline]
+fn unique_ids(ids: &[u32]) -> Vec<u32> {
+    let mut out = Vec::with_capacity(ids.len());
+    let mut seen = HashSet::with_capacity(ids.len());
+    for &id in ids {
+        if seen.insert(id) {
+            out.push(id);
+        }
+    }
+    out
+}
+
+#[inline]
+fn is_child_of(owner_rows: &OwnerRows, child_id: u32, parent_id: u32) -> bool {
+    ChildrenLookup::rows_for_owner(owner_rows, child_id)
+        .first()
+        .map(|m| m.parent_index == parent_id)
+        .unwrap_or(false)
 }

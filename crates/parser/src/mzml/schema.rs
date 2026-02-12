@@ -309,7 +309,7 @@ pub struct SchemaNode {
 
 impl SchemaNode {
     #[inline]
-    pub fn build_child_index(&mut self) {
+    pub fn build_children_lookup(&mut self) {
         if self.child_key_by_tag.len() != 256 {
             self.child_key_by_tag = default_child_key_by_tag();
         } else {
@@ -319,7 +319,7 @@ impl SchemaNode {
         }
 
         for (child_key, child) in &mut self.children {
-            child.build_child_index();
+            child.build_children_lookup();
 
             for &tag in &child.self_tags {
                 let idx = tag as usize;
@@ -362,7 +362,7 @@ impl SchemaTree {
         }
 
         for (root_key, root_node) in self.roots.iter_mut() {
-            root_node.build_child_index();
+            root_node.build_children_lookup();
 
             for &tag in &root_node.self_tags {
                 let idx = tag.as_u8() as usize;

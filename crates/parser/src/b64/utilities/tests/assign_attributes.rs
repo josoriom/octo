@@ -55,10 +55,10 @@ fn assign_attrs_spectrum_emits_schema_b000_only() {
     s.spot_id = Some("spotA".to_string());
     s.ms_level = Some(2);
 
-    let owner_id = 1u32;
+    let id = 1u32;
     let parent_index = 0u32;
 
-    let out = assign_attributes(&s, TagId::Spectrum, owner_id, parent_index);
+    let out = assign_attributes(&s, TagId::Spectrum, id, parent_index);
 
     assert_has_b000_tail(&out, ACC_ATTR_ID);
     assert_has_b000_tail(&out, ACC_ATTR_INDEX);
@@ -88,10 +88,10 @@ fn assign_attrs_spectrum_emits_schema_b000_only() {
 fn assign_attrs_emits_only_b000_accessions() {
     let s = Spectrum::default();
 
-    let owner_id = 1u32;
+    let id = 1u32;
     let parent_index = 0u32;
 
-    let out = assign_attributes(&s, TagId::Spectrum, owner_id, parent_index);
+    let out = assign_attributes(&s, TagId::Spectrum, id, parent_index);
     assert_has_b000_tail(&out, ACC_ATTR_ID);
     assert_text(&out, ACC_ATTR_ID, "");
     assert_missing_b000_tail(&out, ACC_ATTR_INDEX);
@@ -110,10 +110,10 @@ fn assign_attrs_spectrum_id_is_preserved() {
     let mut s = Spectrum::default();
     s.id = "ok".to_string();
 
-    let owner_id = 1u32;
+    let id = 1u32;
     let parent_index = 0u32;
 
-    let out = assign_attributes(&s, TagId::Spectrum, owner_id, parent_index);
+    let out = assign_attributes(&s, TagId::Spectrum, id, parent_index);
 
     assert_has_b000_tail(&out, ACC_ATTR_ID);
     assert_text(&out, ACC_ATTR_ID, "ok");
@@ -129,10 +129,10 @@ fn assign_attrs_chromatogram_emits_schema_b000_only() {
     c.native_id = Some("nativeX".to_string());
     c.data_processing_ref = Some("dpX".to_string());
 
-    let owner_id = 7u32;
+    let id = 7u32;
     let parent_index = 0u32;
 
-    let out = assign_attributes(&c, TagId::Chromatogram, owner_id, parent_index);
+    let out = assign_attributes(&c, TagId::Chromatogram, id, parent_index);
 
     assert_has_b000_tail(&out, ACC_ATTR_ID);
     assert_has_b000_tail(&out, ACC_ATTR_INDEX);

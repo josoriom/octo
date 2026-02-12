@@ -138,12 +138,12 @@ fn assert_meta_value_equiv(a: &MetadatumValue, b: &MetadatumValue, ctx: &str) {
 
 fn candidate_schema_attr_tails_for_owner(
     meta: &[Metadatum],
-    owner_id: u32,
+    id: u32,
     schema_attrs: &HashMap<String, Vec<String>>,
 ) -> HashSet<u32> {
     let mut tails = HashSet::new();
 
-    for m in meta.iter().filter(|m| m.owner_id == owner_id) {
+    for m in meta.iter().filter(|m| m.id == id) {
         let Some(acc) = m.accession.as_deref() else {
             continue;
         };
@@ -162,15 +162,15 @@ fn candidate_schema_attr_tails_for_owner(
     tails
 }
 
-fn find_owner_id_by_tail_text(meta: &[Metadatum], tag: TagId, tail: u32, text: &str) -> u32 {
+fn find_id_by_tail_text(meta: &[Metadatum], tag: TagId, tail: u32, text: &str) -> u32 {
     meta.iter()
         .find(|m| {
             m.tag_id == tag
                 && m.accession.as_deref().and_then(parse_b000_tail) == Some(tail)
                 && matches!(&m.value, MetadatumValue::Text(t) if t == text)
         })
-        .unwrap_or_else(|| panic!("cannot find owner_id for {tag:?} tail={tail} text={text:?}"))
-        .owner_id
+        .unwrap_or_else(|| panic!("cannot find id for {tag:?} tail={tail} text={text:?}"))
+        .id
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn assign_attrs_spectrum_list_b64_equiv_schema_subset() {
         .as_deref()
         .expect("mzML spectrumList default_data_processing_ref present");
 
-    let owner_id = find_owner_id_by_tail_text(
+    let id = find_id_by_tail_text(
         &b64_meta,
         TagId::SpectrumList,
         ACC_ATTR_DEFAULT_DATA_PROCESSING_REF,
@@ -198,22 +198,19 @@ fn assign_attrs_spectrum_list_b64_equiv_schema_subset() {
     );
 
     let parent_index = 0u32;
-    let generated = assign_attributes(sl, TagId::SpectrumList, owner_id, parent_index);
+    let generated = assign_attributes(sl, TagId::SpectrumList, id, parent_index);
 
-    let tails = candidate_schema_attr_tails_for_owner(&b64_meta, owner_id, schema_attrs);
+    let tails = candidate_schema_attr_tails_for_owner(&b64_meta, id, schema_attrs);
     assert!(
         !tails.is_empty(),
-        "no schema-listed B000 attrs found for SpectrumList owner_id={owner_id}"
+        "no schema-listed B000 attrs found for SpectrumList id={id}"
     );
 
     for tail in tails {
         let b = b64_meta
             .iter()
-            .find(|m| {
-                m.owner_id == owner_id
-                    && m.accession.as_deref().and_then(parse_b000_tail) == Some(tail)
-            })
-            .unwrap_or_else(|| panic!("b64 missing tail={tail} for owner_id={owner_id}"));
+            .find(|m| m.id == id && m.accession.as_deref().and_then(parse_b000_tail) == Some(tail))
+            .unwrap_or_else(|| panic!("b64 missing tail={tail} for id={id}"));
 
         let g = find_by_tail(&generated, tail)
             .unwrap_or_else(|| panic!("generated meta missing tail={tail}"));
@@ -250,26 +247,22 @@ fn assign_attrs_spectrum_first_b64_equiv_schema_subset() {
     let b64_meta = spectra_meta_from_test_b64();
     let schema_attrs = schema_attrs_for_tag(TagId::Spectrum);
 
-    let owner_id =
-        find_owner_id_by_tail_text(&b64_meta, TagId::Spectrum, ACC_ATTR_ID, s0.id.as_str());
+    let id = find_id_by_tail_text(&b64_meta, TagId::Spectrum, ACC_ATTR_ID, s0.id.as_str());
 
     let parent_index = 0u32;
-    let generated = assign_attributes(s0, TagId::Spectrum, owner_id, parent_index);
+    let generated = assign_attributes(s0, TagId::Spectrum, id, parent_index);
 
-    let tails = candidate_schema_attr_tails_for_owner(&b64_meta, owner_id, schema_attrs);
+    let tails = candidate_schema_attr_tails_for_owner(&b64_meta, id, schema_attrs);
     assert!(
         !tails.is_empty(),
-        "no schema-listed B000 attrs found for Spectrum owner_id={owner_id}"
+        "no schema-listed B000 attrs found for Spectrum id={id}"
     );
 
     for tail in tails {
         let b = b64_meta
             .iter()
-            .find(|m| {
-                m.owner_id == owner_id
-                    && m.accession.as_deref().and_then(parse_b000_tail) == Some(tail)
-            })
-            .unwrap_or_else(|| panic!("b64 missing tail={tail} for owner_id={owner_id}"));
+            .find(|m| m.id == id && m.accession.as_deref().and_then(parse_b000_tail) == Some(tail))
+            .unwrap_or_else(|| panic!("b64 missing tail={tail} for id={id}"));
 
         let g = find_by_tail(&generated, tail)
             .unwrap_or_else(|| panic!("generated meta missing tail={tail}"));
@@ -296,26 +289,22 @@ fn assign_attrs_spectrum_last_b64_equiv_schema_subset() {
     let b64_meta = spectra_meta_from_test_b64();
     let schema_attrs = schema_attrs_for_tag(TagId::Spectrum);
 
-    let owner_id =
-        find_owner_id_by_tail_text(&b64_meta, TagId::Spectrum, ACC_ATTR_ID, s_last.id.as_str());
+    let id = find_id_by_tail_text(&b64_meta, TagId::Spectrum, ACC_ATTR_ID, s_last.id.as_str());
 
     let parent_index = 0u32;
-    let generated = assign_attributes(s_last, TagId::Spectrum, owner_id, parent_index);
+    let generated = assign_attributes(s_last, TagId::Spectrum, id, parent_index);
 
-    let tails = candidate_schema_attr_tails_for_owner(&b64_meta, owner_id, schema_attrs);
+    let tails = candidate_schema_attr_tails_for_owner(&b64_meta, id, schema_attrs);
     assert!(
         !tails.is_empty(),
-        "no schema-listed B000 attrs found for Spectrum owner_id={owner_id}"
+        "no schema-listed B000 attrs found for Spectrum id={id}"
     );
 
     for tail in tails {
         let b = b64_meta
             .iter()
-            .find(|m| {
-                m.owner_id == owner_id
-                    && m.accession.as_deref().and_then(parse_b000_tail) == Some(tail)
-            })
-            .unwrap_or_else(|| panic!("b64 missing tail={tail} for owner_id={owner_id}"));
+            .find(|m| m.id == id && m.accession.as_deref().and_then(parse_b000_tail) == Some(tail))
+            .unwrap_or_else(|| panic!("b64 missing tail={tail} for id={id}"));
 
         let g = find_by_tail(&generated, tail)
             .unwrap_or_else(|| panic!("generated meta missing tail={tail}"));

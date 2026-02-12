@@ -6,7 +6,7 @@ pub use parse_metadata::parse_metadata;
 pub mod parse_binary_array_list;
 pub use parse_binary_array_list::parse_binary_data_array_list;
 pub mod parse_cv_and_user_params;
-pub use parse_cv_and_user_params::{parse_cv_and_user_params, parse_list_grouped_by_owner_id};
+pub use parse_cv_and_user_params::parse_cv_and_user_params;
 
 pub mod parse_scan_list;
 pub use parse_scan_list::parse_scan_list;
@@ -37,6 +37,7 @@ pub mod parse_scan_settings_list;
 pub use parse_scan_settings_list::parse_scan_settings_list;
 pub mod parse_cv_list;
 pub use parse_cv_list::parse_cv_list;
+pub mod children_lookup;
 pub mod container;
 
 #[cfg(test)]

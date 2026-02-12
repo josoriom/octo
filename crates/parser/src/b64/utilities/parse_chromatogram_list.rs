@@ -3,9 +3,8 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     Chromatogram, ChromatogramList,
     b64::utilities::{
-        common::{
-            ChildIndex, get_attr_text, get_attr_u32, ordered_unique_owner_ids, xy_lengths_from_bdal,
-        },
+        children_lookup::ChildrenLookup,
+        common::{get_attr_text, get_attr_u32, xy_lengths_from_bdal},
         parse_binary_data_array_list, parse_cv_and_user_params,
     },
     decode::Metadatum,
@@ -25,7 +24,7 @@ use crate::mzml::attr_meta::{
 #[inline]
 pub fn parse_chromatogram_list(
     metadata: &[&Metadatum],
-    child_index: &ChildIndex,
+    children_lookup: &ChildrenLookup,
 ) -> Option<ChromatogramList> {
     let mut chromatogram_list_rows: Vec<&Metadatum> = Vec::new();
     for &m in metadata {
@@ -45,7 +44,7 @@ pub fn parse_chromatogram_list(
 
     let count_attr = get_attr_u32(&chromatogram_list_rows, ACC_ATTR_COUNT).map(|v| v as usize);
 
-    let chromatogram_ids = ordered_unique_owner_ids(metadata, TagId::Chromatogram);
+    let chromatogram_ids = ChildrenLookup::all_ids(metadata, TagId::Chromatogram);
     if chromatogram_ids.is_empty() {
         return None;
     }
@@ -55,7 +54,7 @@ pub fn parse_chromatogram_list(
     for &m in metadata {
         if m.tag_id == TagId::Chromatogram {
             chromatogram_owner_to_item
-                .entry(m.owner_id)
+                .entry(m.id)
                 .or_insert(m.item_index);
         }
     }
@@ -109,10 +108,10 @@ pub fn parse_chromatogram_list(
                 continue;
             }
             if root_id == 0 {
-                root_id = m.owner_id;
+                root_id = m.id;
                 continue;
             }
-            if root_id != m.owner_id {
+            if root_id != m.id {
                 has_other_root_by_bucket[pos] = true;
                 break;
             }
@@ -131,10 +130,10 @@ pub fn parse_chromatogram_list(
         }
 
         if has_other_root_by_bucket[pos] {
-            let keep = subtree_owner_ids(chromatogram_id, child_index);
+            let keep = children_lookup.subtree_ids(chromatogram_id);
             let mut scoped: Vec<&Metadatum> = Vec::with_capacity(item_meta.len());
             for &m in item_meta {
-                if keep.contains(&m.owner_id) {
+                if keep.contains(&m.id) {
                     scoped.push(m);
                 }
             }
@@ -142,7 +141,7 @@ pub fn parse_chromatogram_list(
             chromatograms.push(parse_chromatogram(
                 scoped.as_slice(),
                 chromatogram_id,
-                child_index,
+                children_lookup,
                 fallback_index,
                 default_data_processing_ref.as_deref(),
             ));
@@ -150,7 +149,7 @@ pub fn parse_chromatogram_list(
             chromatograms.push(parse_chromatogram(
                 item_meta,
                 chromatogram_id,
-                child_index,
+                children_lookup,
                 fallback_index,
                 default_data_processing_ref.as_deref(),
             ));
@@ -169,7 +168,7 @@ pub fn parse_chromatogram_list(
 fn parse_chromatogram(
     metadata: &[&Metadatum],
     chromatogram_id: u32,
-    child_index: &ChildIndex,
+    children_lookup: &ChildrenLookup,
     fallback_index: u32,
     default_data_processing_ref: Option<&str>,
 ) -> Chromatogram {
@@ -177,7 +176,7 @@ fn parse_chromatogram(
     let mut chromatogram_params_meta: Vec<&Metadatum> = Vec::new();
 
     for &m in metadata {
-        if m.owner_id == chromatogram_id && m.tag_id == TagId::Chromatogram {
+        if m.id == chromatogram_id && m.tag_id == TagId::Chromatogram {
             chromatogram_rows.push(m);
             chromatogram_params_meta.push(m);
             continue;
@@ -208,8 +207,8 @@ fn parse_chromatogram(
     let default_array_length: Option<usize> =
         default_array_length_attr.or(x_len).or(y_len).or(Some(0));
 
-    let precursor = parse_precursor_for_chromatogram(metadata, chromatogram_id, child_index);
-    let product = parse_product_for_chromatogram(metadata, chromatogram_id, child_index);
+    let precursor = parse_precursor_for_chromatogram(metadata, chromatogram_id, children_lookup);
+    let product = parse_product_for_chromatogram(metadata, chromatogram_id, children_lookup);
 
     Chromatogram {
         id,
@@ -231,13 +230,13 @@ fn parse_chromatogram(
 fn parse_precursor_for_chromatogram(
     metadata: &[&Metadatum],
     chromatogram_id: u32,
-    child_index: &ChildIndex,
+    children_lookup: &ChildrenLookup,
 ) -> Option<Precursor> {
-    let precursor_id = child_index.first_id(chromatogram_id, TagId::Precursor)?;
+    let precursor_id = children_lookup.first_id(chromatogram_id, TagId::Precursor)?;
 
     let mut precursor_rows: Vec<&Metadatum> = Vec::new();
     for &m in metadata {
-        if m.tag_id == TagId::Precursor && m.owner_id == precursor_id {
+        if m.tag_id == TagId::Precursor && m.id == precursor_id {
             precursor_rows.push(m);
         }
     }
@@ -250,9 +249,9 @@ fn parse_precursor_for_chromatogram(
         spectrum_ref,
         source_file_ref,
         external_spectrum_id,
-        isolation_window: parse_isolation_window(metadata, precursor_id, child_index),
-        selected_ion_list: parse_selected_ion_list(metadata, precursor_id, child_index),
-        activation: parse_activation(metadata, precursor_id, child_index),
+        isolation_window: parse_isolation_window(metadata, precursor_id, children_lookup),
+        selected_ion_list: parse_selected_ion_list(metadata, precursor_id, children_lookup),
+        activation: parse_activation(metadata, precursor_id, children_lookup),
     })
 }
 
@@ -261,15 +260,15 @@ fn parse_precursor_for_chromatogram(
 fn parse_product_for_chromatogram(
     metadata: &[&Metadatum],
     chromatogram_id: u32,
-    child_index: &ChildIndex,
+    children_lookup: &ChildrenLookup,
 ) -> Option<Product> {
-    let product_id = child_index.first_id(chromatogram_id, TagId::Product)?;
+    let product_id = children_lookup.first_id(chromatogram_id, TagId::Product)?;
 
     Some(Product {
         spectrum_ref: None,
         source_file_ref: None,
         external_spectrum_id: None,
-        isolation_window: parse_isolation_window(metadata, product_id, child_index),
+        isolation_window: parse_isolation_window(metadata, product_id, children_lookup),
     })
 }
 
@@ -278,9 +277,9 @@ fn parse_product_for_chromatogram(
 fn parse_isolation_window(
     metadata: &[&Metadatum],
     parent_id: u32,
-    child_index: &ChildIndex,
+    children_lookup: &ChildrenLookup,
 ) -> Option<IsolationWindow> {
-    let isolation_id = child_index.first_id(parent_id, TagId::IsolationWindow)?;
+    let isolation_id = children_lookup.first_id(parent_id, TagId::IsolationWindow)?;
 
     let mut iso_params_meta: Vec<&Metadatum> = Vec::new();
     for &m in metadata {
@@ -305,20 +304,20 @@ fn parse_isolation_window(
 fn parse_selected_ion_list(
     metadata: &[&Metadatum],
     precursor_id: u32,
-    child_index: &ChildIndex,
+    children_lookup: &ChildrenLookup,
 ) -> Option<SelectedIonList> {
-    let list_id = child_index.first_id(precursor_id, TagId::SelectedIonList)?;
+    let list_id = children_lookup.first_id(precursor_id, TagId::SelectedIonList)?;
 
     let mut list_rows: Vec<&Metadatum> = Vec::new();
     for &m in metadata {
-        if m.tag_id == TagId::SelectedIonList && m.owner_id == list_id {
+        if m.tag_id == TagId::SelectedIonList && m.id == list_id {
             list_rows.push(m);
         }
     }
 
     let count_attr = get_attr_u32(&list_rows, ACC_ATTR_COUNT).map(|v| v as usize);
 
-    let ion_ids = child_index.ids(list_id, TagId::SelectedIon);
+    let ion_ids = children_lookup.get_children_with_tag(list_id, TagId::SelectedIon);
 
     let mut selected_ions: Vec<SelectedIon> = Vec::with_capacity(ion_ids.len());
     let mut seen: HashSet<u32> = HashSet::with_capacity(ion_ids.len());
@@ -357,9 +356,9 @@ fn parse_selected_ion_list(
 fn parse_activation(
     metadata: &[&Metadatum],
     precursor_id: u32,
-    child_index: &ChildIndex,
+    children_lookup: &ChildrenLookup,
 ) -> Option<Activation> {
-    let activation_id = child_index.first_id(precursor_id, TagId::Activation)?;
+    let activation_id = children_lookup.first_id(precursor_id, TagId::Activation)?;
 
     let mut activation_params_meta: Vec<&Metadatum> = Vec::new();
     for &m in metadata {
@@ -377,23 +376,4 @@ fn parse_activation(
         cv_params,
         user_params,
     })
-}
-
-#[inline]
-fn subtree_owner_ids(root_id: u32, child_index: &ChildIndex) -> HashSet<u32> {
-    let mut seen: HashSet<u32> = HashSet::with_capacity(32);
-    let mut stack: Vec<u32> = Vec::with_capacity(32);
-    stack.push(root_id);
-
-    while let Some(id) = stack.pop() {
-        if !seen.insert(id) {
-            continue;
-        }
-
-        for &child_id in child_index.children(id) {
-            stack.push(child_id);
-        }
-    }
-
-    seen
 }

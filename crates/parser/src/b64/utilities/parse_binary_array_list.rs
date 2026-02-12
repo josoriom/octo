@@ -18,7 +18,7 @@ pub fn parse_binary_data_array_list(metadata: &[&Metadatum]) -> Option<BinaryDat
     let list_id = metadata
         .iter()
         .find(|m| m.tag_id == TagId::BinaryDataArrayList)
-        .map(|m| m.owner_id)
+        .map(|m| m.id)
         .or_else(|| {
             metadata
                 .iter()
@@ -40,7 +40,7 @@ pub fn parse_binary_data_array_list(metadata: &[&Metadatum]) -> Option<BinaryDat
 
         if count.is_none()
             && m.tag_id == TagId::BinaryDataArrayList
-            && m.owner_id == list_id
+            && m.id == list_id
             && m.accession.as_deref().and_then(b000_tail) == Some(ACC_ATTR_COUNT)
         {
             count = as_u32(&m.value).map(|v| v as usize);
@@ -51,7 +51,7 @@ pub fn parse_binary_data_array_list(metadata: &[&Metadatum]) -> Option<BinaryDat
             continue;
         }
 
-        let id = m.owner_id;
+        let id = m.id;
         let at = match tmp.iter().position(|(x, _)| *x == id) {
             Some(i) => i,
             None => {

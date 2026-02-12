@@ -5,7 +5,7 @@ use serde_json::Value;
 use crate::b64::{
     decode::Metadatum,
     utilities::{
-        common::ChildIndex, parse_file_description::parse_file_description,
+        children_lookup::ChildrenLookup, parse_file_description::parse_file_description,
         parse_global_metadata::parse_global_metadata, parse_header,
     },
 };
@@ -74,10 +74,10 @@ fn find_cv_by_accession<'a>(arr: &'a [Value], accession: &str) -> &'a Value {
 fn parse_file_description_matches_test_mzml() {
     let meta = parse_global_metadata_from_test_file();
 
-    let child_index = ChildIndex::new(&meta);
+    let children_lookup = ChildrenLookup::new(&meta);
     let meta_ref: Vec<&Metadatum> = meta.iter().collect();
 
-    let fd = parse_file_description(&meta_ref, &child_index)
+    let fd = parse_file_description(&meta_ref, &children_lookup)
         .expect("parse_file_description returned None");
 
     assert_eq!(fd.source_file_list.count, Some(1));

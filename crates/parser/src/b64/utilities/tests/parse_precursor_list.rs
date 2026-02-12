@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf};
 
-use crate::b64::utilities::common::ChildIndex;
+use crate::b64::utilities::children_lookup::ChildrenLookup;
 use crate::mzml::schema::TagId;
 use crate::{
     CvParam,
@@ -111,9 +111,9 @@ fn first_spectrum_precursor_list_must_be_none() {
         .filter(|m| m.item_index == scan_item_index)
         .collect();
 
-    let child_index = ChildIndex::new(&meta);
+    let children_lookup = ChildrenLookup::new(&meta);
 
-    let precursor_list = parse_precursor_list(&scoped, &child_index);
+    let precursor_list = parse_precursor_list(&scoped, &children_lookup);
 
     assert!(
         precursor_list.is_none(),
@@ -158,8 +158,8 @@ fn second_spectrum_precursor_list_cv_params_item_by_item() {
         .filter(|m| m.item_index == scan_item_index)
         .collect();
 
-    let child_index = ChildIndex::new(&meta);
-    let precursor_list = parse_precursor_list(&scoped, &child_index)
+    let children_lookup = ChildrenLookup::new(&meta);
+    let precursor_list = parse_precursor_list(&scoped, &children_lookup)
         .expect("parse_precursor_list returned None for second spectrum");
     assert_eq!(precursor_list.count, Some(1));
     assert_eq!(precursor_list.precursors.len(), 1);

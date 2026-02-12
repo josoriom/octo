@@ -1,11 +1,7 @@
-use std::collections::HashMap;
-
 use crate::{
     b64::utilities::{
-        common::{
-            ChildIndex, OwnerRows, ParseCtx, b000_attr_text, child_params_for_parent,
-            ids_for_parent, rows_for_owner,
-        },
+        children_lookup::{ChildrenLookup, OwnerRows},
+        common::b000_attr_text,
         parse_cv_and_user_params,
     },
     decode::Metadatum,
@@ -17,51 +13,39 @@ use crate::{
     },
 };
 
-/// <softwareList>
 #[inline]
 pub fn parse_software_list(
     metadata: &[&Metadatum],
-    child_index: &ChildIndex,
+    children_lookup: &ChildrenLookup,
 ) -> Option<SoftwareList> {
-    let mut owner_rows: OwnerRows<'_> = HashMap::with_capacity(metadata.len());
+    let mut owner_rows: OwnerRows<'_> = OwnerRows::with_capacity(metadata.len());
 
     let mut list_id: Option<u32> = None;
-    let mut fallback_list_id: Option<u32> = None;
-
     for &m in metadata {
-        owner_rows.entry(m.owner_id).or_default().push(m);
-
-        match m.tag_id {
-            TagId::SoftwareList => {
-                if list_id.is_none() {
-                    list_id = Some(m.owner_id);
-                }
-            }
-            TagId::Software => {
-                if fallback_list_id.is_none() {
-                    fallback_list_id = Some(m.parent_index);
-                }
-            }
-            _ => {}
+        owner_rows.entry(m.id).or_default().push(m);
+        if list_id.is_none() && m.tag_id == TagId::SoftwareList {
+            list_id = Some(m.id);
         }
     }
 
-    let list_id = list_id.or(fallback_list_id)?;
-
-    let ctx = ParseCtx {
-        metadata,
-        child_index,
-        owner_rows: &owner_rows,
+    let software_ids = if let Some(list_id) = list_id {
+        let ids = children_lookup.ids_for(metadata, list_id, TagId::Software);
+        if ids.is_empty() {
+            ChildrenLookup::all_ids(metadata, TagId::Software)
+        } else {
+            ids
+        }
+    } else {
+        ChildrenLookup::all_ids(metadata, TagId::Software)
     };
 
-    let software_ids = ids_for_parent(&ctx, list_id, TagId::Software);
     if software_ids.is_empty() {
         return None;
     }
 
     let mut software = Vec::with_capacity(software_ids.len());
     for id in software_ids {
-        software.push(parse_software(&ctx, id));
+        software.push(parse_software(metadata, children_lookup, &owner_rows, id));
     }
 
     Some(SoftwareList {
@@ -70,17 +54,27 @@ pub fn parse_software_list(
     })
 }
 
-/// <software>
 #[inline]
-fn parse_software(ctx: &ParseCtx<'_>, software_id: u32) -> Software {
-    let rows = rows_for_owner(ctx.owner_rows, software_id);
+fn parse_software<'a>(
+    metadata: &[&'a Metadatum],
+    children_lookup: &ChildrenLookup,
+    owner_rows: &OwnerRows<'a>,
+    software_id: u32,
+) -> Software {
+    let rows = ChildrenLookup::rows_for_owner(owner_rows, software_id);
 
     let id = b000_attr_text(rows, ACC_ATTR_ID).unwrap_or_default();
     let version = b000_attr_text(rows, ACC_ATTR_VERSION).filter(|s| !s.is_empty());
 
-    let software_param = parse_software_params(ctx, software_id, version.as_deref());
+    let software_param = parse_software_params(
+        metadata,
+        children_lookup,
+        owner_rows,
+        software_id,
+        version.as_deref(),
+    );
 
-    let child_meta = child_params_for_parent(ctx.owner_rows, ctx.child_index, software_id);
+    let child_meta = children_lookup.param_rows(metadata, owner_rows, software_id);
 
     let (cv_param, _) = if child_meta.is_empty() {
         parse_cv_and_user_params(rows)
@@ -99,33 +93,33 @@ fn parse_software(ctx: &ParseCtx<'_>, software_id: u32) -> Software {
     }
 }
 
-/// <softwareParam>
 #[inline]
-fn parse_software_params(
-    ctx: &ParseCtx<'_>,
+fn parse_software_params<'a>(
+    metadata: &[&'a Metadatum],
+    children_lookup: &ChildrenLookup,
+    owner_rows: &OwnerRows<'a>,
     software_id: u32,
     parent_version: Option<&str>,
 ) -> Vec<SoftwareParam> {
-    let ids = ids_for_parent(ctx, software_id, TagId::SoftwareParam);
+    let ids = children_lookup.ids_for(metadata, software_id, TagId::SoftwareParam);
     if ids.is_empty() {
         return Vec::new();
     }
 
     let mut out = Vec::with_capacity(ids.len());
     for id in ids {
-        out.push(parse_software_param(ctx, id, parent_version));
+        out.push(parse_software_param(owner_rows, id, parent_version));
     }
     out
 }
 
-/// <softwareParam>
 #[inline]
 fn parse_software_param(
-    ctx: &ParseCtx<'_>,
+    owner_rows: &OwnerRows<'_>,
     software_param_id: u32,
     parent_version: Option<&str>,
 ) -> SoftwareParam {
-    let rows = rows_for_owner(ctx.owner_rows, software_param_id);
+    let rows = ChildrenLookup::rows_for_owner(owner_rows, software_param_id);
 
     let version = b000_attr_text(rows, ACC_ATTR_VERSION)
         .filter(|s| !s.is_empty())
@@ -135,7 +129,6 @@ fn parse_software_param(
 
     if let Some(cv) = cv_params.into_iter().next() {
         let accession = cv.accession.unwrap_or_default();
-
         let cv_ref = b000_attr_text(rows, ACC_ATTR_REF)
             .filter(|s| !s.is_empty())
             .or(cv.cv_ref);

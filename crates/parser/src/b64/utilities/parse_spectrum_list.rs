@@ -5,7 +5,8 @@ use crate::{
     b64::{
         decode::Metadatum,
         utilities::{
-            common::{ChildIndex, get_attr_text, get_attr_u32, xy_lengths_from_bdal},
+            children_lookup::ChildrenLookup,
+            common::{get_attr_text, get_attr_u32, xy_lengths_from_bdal},
             parse_binary_data_array_list, parse_cv_and_user_params, parse_precursor_list,
             parse_product_list, parse_scan_list,
         },
@@ -22,21 +23,17 @@ use crate::mzml::attr_meta::{
 #[inline]
 pub fn parse_spectrum_list(
     metadata: &[&Metadatum],
-    child_index: &ChildIndex,
+    children_lookup: &ChildrenLookup,
 ) -> Option<SpectrumList> {
-    // <spectrumList>/<spectrum>/<cvParam>
     let mut spectrum_list_rows: Vec<&Metadatum> = Vec::new();
-    let mut spectrum_rows: Vec<&Metadatum> = Vec::new();
-
     for &m in metadata {
-        match m.tag_id {
-            TagId::SpectrumList => spectrum_list_rows.push(m),
-            TagId::Spectrum => spectrum_rows.push(m),
-            _ => {}
+        if m.tag_id == TagId::SpectrumList {
+            spectrum_list_rows.push(m);
         }
     }
 
-    if spectrum_rows.is_empty() {
+    let spectrum_ids = ChildrenLookup::all_ids(metadata, TagId::Spectrum);
+    if spectrum_ids.is_empty() {
         return None;
     }
 
@@ -50,81 +47,44 @@ pub fn parse_spectrum_list(
         .or_else(|| get_attr_u32(metadata, ACC_ATTR_COUNT))
         .map(|v| v as usize);
 
-    let mut spectrum_owner_to_item: HashMap<u32, u32> = HashMap::with_capacity(spectrum_rows.len());
-    for &m in &spectrum_rows {
-        spectrum_owner_to_item.insert(m.owner_id, m.item_index);
-    }
-
-    let mut spectrum_item_indices: Vec<u32> = Vec::new();
-
-    if !spectrum_list_rows.is_empty() {
-        let mut spectrum_list_id: u32 = spectrum_list_rows[0].owner_id;
-
-        for row in &spectrum_list_rows {
-            let direct = child_index.ids(row.owner_id, TagId::Spectrum);
-            let mut found = false;
-
-            for &spectrum_id in direct {
-                if spectrum_owner_to_item.contains_key(&spectrum_id) {
-                    spectrum_list_id = row.owner_id;
-                    found = true;
-                    break;
-                }
-            }
-
-            if found {
-                break;
-            }
-        }
-
-        let direct = child_index.ids(spectrum_list_id, TagId::Spectrum);
-        if !direct.is_empty() {
-            let mut out = Vec::with_capacity(direct.len());
-            let mut seen = HashSet::with_capacity(direct.len());
-
-            for &spectrum_id in direct {
-                if let Some(&item_index) = spectrum_owner_to_item.get(&spectrum_id) {
-                    if seen.insert(item_index) {
-                        out.push(item_index);
-                    }
-                }
-            }
-
-            if !out.is_empty() {
-                spectrum_item_indices = out;
-            }
+    let mut spectrum_owner_to_item: HashMap<u32, u32> = HashMap::with_capacity(spectrum_ids.len());
+    for &m in metadata {
+        if m.tag_id == TagId::Spectrum {
+            spectrum_owner_to_item.entry(m.id).or_insert(m.item_index);
         }
     }
 
-    if spectrum_item_indices.is_empty() {
-        let mut seen_item: HashSet<u32> = HashSet::with_capacity(spectrum_rows.len());
-        spectrum_item_indices = Vec::with_capacity(spectrum_rows.len());
+    let mut items: Vec<(u32, u32, u32)> = Vec::with_capacity(spectrum_ids.len());
+    let mut item_indices: Vec<u32> = Vec::new();
+    let mut seen_items: HashSet<u32> = HashSet::with_capacity(spectrum_ids.len());
 
-        for &m in &spectrum_rows {
-            if seen_item.insert(m.item_index) {
-                spectrum_item_indices.push(m.item_index);
-            }
+    for (fallback_index, &spectrum_id) in spectrum_ids.iter().enumerate() {
+        let Some(&item_idx) = spectrum_owner_to_item.get(&spectrum_id) else {
+            continue;
+        };
+        items.push((spectrum_id, item_idx, fallback_index as u32));
+        if seen_items.insert(item_idx) {
+            item_indices.push(item_idx);
         }
     }
 
-    let n = spectrum_item_indices.len();
-    if n == 0 {
+    if items.is_empty() {
         return None;
     }
 
-    let mut pos_by_item: HashMap<u32, usize> = HashMap::with_capacity(n);
-    for (pos, item_index) in spectrum_item_indices.iter().copied().enumerate() {
-        pos_by_item.insert(item_index, pos);
+    let mut pos_by_item: HashMap<u32, usize> = HashMap::with_capacity(item_indices.len());
+    for (pos, item_idx) in item_indices.iter().copied().enumerate() {
+        pos_by_item.insert(item_idx, pos);
     }
 
-    let mut counts = vec![0usize; n];
+    let mut counts = vec![0usize; item_indices.len()];
     for &m in metadata {
         if let Some(&pos) = pos_by_item.get(&m.item_index) {
             counts[pos] += 1;
         }
     }
 
-    let mut buckets: Vec<Vec<&Metadatum>> = Vec::with_capacity(n);
+    let mut buckets: Vec<Vec<&Metadatum>> = Vec::with_capacity(item_indices.len());
     for &c in &counts {
         buckets.push(Vec::with_capacity(c));
     }
@@ -135,43 +95,60 @@ pub fn parse_spectrum_list(
         }
     }
 
-    let mut spectra = Vec::with_capacity(n);
-
-    for (pos, spectrum_meta) in buckets.iter().enumerate() {
-        if spectrum_meta.is_empty() {
-            continue;
-        }
-
+    let mut has_other_root_by_bucket = vec![false; buckets.len()];
+    for (pos, bucket) in buckets.iter().enumerate() {
         let mut root_id = 0u32;
-        let mut has_other_root = false;
-        for &m in spectrum_meta {
+        for &m in bucket {
             if m.tag_id != TagId::Spectrum {
                 continue;
             }
             if root_id == 0 {
-                root_id = m.owner_id;
-            } else if m.owner_id != root_id {
-                has_other_root = true;
+                root_id = m.id;
+            } else if m.id != root_id {
+                has_other_root_by_bucket[pos] = true;
                 break;
             }
         }
+    }
 
-        let scoped_meta: Vec<&Metadatum>;
-        let used_meta: &[&Metadatum] = if has_other_root && root_id != 0 {
-            scoped_meta = collect_subtree_metadata(spectrum_meta, child_index, root_id);
-            scoped_meta.as_slice()
-        } else {
-            spectrum_meta
+    let mut spectra = Vec::with_capacity(items.len());
+
+    for (spectrum_id, item_idx, fallback_index) in items {
+        let Some(&pos) = pos_by_item.get(&item_idx) else {
+            continue;
         };
+        let item_meta = buckets[pos].as_slice();
+        if item_meta.is_empty() {
+            continue;
+        }
 
-        let local_child_index = ChildIndex::new_from_refs(used_meta);
-
-        spectra.push(parse_spectrum(
-            used_meta,
-            pos as u32,
-            default_data_processing_ref.as_deref(),
-            &local_child_index,
-        ));
+        if has_other_root_by_bucket[pos] {
+            let keep = children_lookup.subtree_ids(spectrum_id);
+            let mut scoped: Vec<&Metadatum> = Vec::with_capacity(item_meta.len());
+            for &m in item_meta {
+                if keep.contains(&m.id) {
+                    scoped.push(m);
+                }
+            }
+            if scoped.is_empty() {
+                continue;
+            }
+            let local_children_lookup = ChildrenLookup::new(scoped.as_slice());
+            spectra.push(parse_spectrum(
+                scoped.as_slice(),
+                fallback_index,
+                default_data_processing_ref.as_deref(),
+                &local_children_lookup,
+            ));
+        } else {
+            let local_children_lookup = ChildrenLookup::new(item_meta);
+            spectra.push(parse_spectrum(
+                item_meta,
+                fallback_index,
+                default_data_processing_ref.as_deref(),
+                &local_children_lookup,
+            ));
+        }
     }
 
     if spectra.is_empty() {
@@ -190,7 +167,7 @@ fn parse_spectrum(
     metadata: &[&Metadatum],
     fallback_index: u32,
     default_data_processing_ref: Option<&str>,
-    child_index: &ChildIndex,
+    children_lookup: &ChildrenLookup,
 ) -> Spectrum {
     // <spectrum>
     let mut spectrum_rows: Vec<&Metadatum> = Vec::new();
@@ -203,12 +180,12 @@ fn parse_spectrum(
         }
 
         if spectrum_id == 0 {
-            spectrum_id = m.owner_id;
+            spectrum_id = m.id;
         }
 
         spectrum_rows.push(m);
 
-        if m.owner_id != spectrum_id {
+        if m.id != spectrum_id {
             continue;
         }
 
@@ -237,9 +214,9 @@ fn parse_spectrum(
 
     let (cv_params, user_params) = parse_cv_and_user_params(&spectrum_params_meta);
 
-    let scan_list = parse_scan_list(metadata, child_index);
-    let product_list = parse_product_list(metadata, child_index);
-    let precursor_list = parse_precursor_list(metadata, child_index);
+    let scan_list = parse_scan_list(metadata, children_lookup);
+    let product_list = parse_product_list(metadata, children_lookup);
+    let precursor_list = parse_precursor_list(metadata, children_lookup);
 
     let binary_data_array_list: Option<BinaryDataArrayList> =
         parse_binary_data_array_list(metadata);
@@ -250,7 +227,7 @@ fn parse_spectrum(
         get_attr_u32(&spectrum_rows, ACC_ATTR_DEFAULT_ARRAY_LENGTH).map(|v| v as usize);
 
     let default_array_length = default_array_length_attr.or(x_len).or(y_len).or(Some(0));
-    let spectrum_description = parse_spectrum_description(metadata, child_index);
+    let spectrum_description = parse_spectrum_description(metadata, children_lookup);
 
     Spectrum {
         id,
@@ -276,13 +253,13 @@ fn parse_spectrum(
 #[inline]
 fn parse_spectrum_description(
     metadata: &[&Metadatum],
-    child_index: &ChildIndex,
+    children_lookup: &ChildrenLookup,
 ) -> Option<SpectrumDescription> {
     // <spectrumDescription>
     let mut spectrum_id: u32 = 0;
     for &m in metadata {
         if m.tag_id == TagId::Spectrum {
-            spectrum_id = m.owner_id;
+            spectrum_id = m.id;
             break;
         }
     }
@@ -290,21 +267,27 @@ fn parse_spectrum_description(
         return None;
     }
 
-    let sd_id = child_index
+    let sd_id = children_lookup
         .first_id(spectrum_id, TagId::SpectrumDescription)
         .or_else(|| {
             metadata
                 .iter()
                 .find(|m| m.tag_id == TagId::SpectrumDescription && m.parent_index == spectrum_id)
-                .map(|m| m.owner_id)
+                .map(|m| m.id)
         })?;
 
-    let sd_meta = collect_subtree_metadata(metadata, child_index, sd_id);
-    let sd_child_index = ChildIndex::new_from_refs(sd_meta.as_slice());
+    let keep = children_lookup.subtree_ids(sd_id);
+    let mut sd_meta: Vec<&Metadatum> = Vec::with_capacity(keep.len().min(metadata.len()));
+    for &m in metadata {
+        if keep.contains(&m.id) {
+            sd_meta.push(m);
+        }
+    }
+    let sd_children_lookup = ChildrenLookup::new(sd_meta.as_slice());
 
     let mut sd_rows: Vec<&Metadatum> = Vec::new();
     for &m in &sd_meta {
-        if m.tag_id != TagId::SpectrumDescription || m.owner_id != sd_id {
+        if m.tag_id != TagId::SpectrumDescription || m.id != sd_id {
             continue;
         }
         if m.accession
@@ -318,9 +301,9 @@ fn parse_spectrum_description(
 
     let (cv_params, user_params) = parse_cv_and_user_params(&sd_rows);
 
-    let scan_list = parse_scan_list(sd_meta.as_slice(), &sd_child_index);
-    let product_list = parse_product_list(sd_meta.as_slice(), &sd_child_index);
-    let precursor_list = parse_precursor_list(sd_meta.as_slice(), &sd_child_index);
+    let scan_list = parse_scan_list(sd_meta.as_slice(), &sd_children_lookup);
+    let product_list = parse_product_list(sd_meta.as_slice(), &sd_children_lookup);
+    let precursor_list = parse_precursor_list(sd_meta.as_slice(), &sd_children_lookup);
 
     Some(SpectrumDescription {
         referenceable_param_group_refs: Vec::new(),
@@ -330,33 +313,4 @@ fn parse_spectrum_description(
         precursor_list,
         product_list,
     })
-}
-
-#[inline]
-fn collect_subtree_metadata<'a>(
-    metadata: &'a [&'a Metadatum],
-    child_index: &ChildIndex,
-    root_owner_id: u32,
-) -> Vec<&'a Metadatum> {
-    let mut keep: HashSet<u32> = HashSet::with_capacity(64);
-    let mut stack: Vec<u32> = Vec::with_capacity(32);
-    stack.push(root_owner_id);
-
-    while let Some(id) = stack.pop() {
-        if !keep.insert(id) {
-            continue;
-        }
-        for &ch in child_index.children(id) {
-            stack.push(ch);
-        }
-    }
-
-    let mut out: Vec<&'a Metadatum> = Vec::with_capacity(keep.len().min(metadata.len()));
-    for &m in metadata {
-        if keep.contains(&m.owner_id) {
-            out.push(m);
-        }
-    }
-
-    out
 }

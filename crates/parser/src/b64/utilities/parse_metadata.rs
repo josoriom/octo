@@ -124,7 +124,7 @@ pub fn parse_metadata(
 
             out.push(Metadatum {
                 item_index: item_index as u32,
-                owner_id: moi[j],
+                id: moi[j],
                 parent_index: mpi[j],
                 tag_id,
                 accession,

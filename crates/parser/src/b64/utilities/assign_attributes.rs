@@ -22,7 +22,7 @@ struct FieldSpec {
 pub fn assign_attributes<T>(
     expected: &T,
     tag_id: TagId,
-    owner_id: u32,
+    id: u32,
     parent_index: u32,
 ) -> Vec<Metadatum>
 where
@@ -266,7 +266,7 @@ where
 
         out.push(Metadatum {
             item_index,
-            owner_id,
+            id,
             parent_index,
             tag_id,
             accession: Some(accession),

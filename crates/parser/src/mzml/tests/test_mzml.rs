@@ -1,9 +1,7 @@
 use std::sync::OnceLock;
 
-use base64::{Engine as _, engine::general_purpose};
-
 use crate::{
-    BinaryData, BinaryDataArray, CvParam, NumericType,
+    BinaryData, NumericType,
     mzml::structs::MzML,
     utilities::test::{CvRefMode, assert_cv, mzml, spectrum_precursor_list, spectrum_scan_list},
 };
