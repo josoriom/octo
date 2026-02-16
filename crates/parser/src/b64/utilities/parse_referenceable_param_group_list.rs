@@ -1,7 +1,7 @@
 use crate::{
     b64::utilities::{
         children_lookup::{ChildrenLookup, OwnerRows},
-        common::b000_attr_text,
+        common::get_attr_text,
         parse_cv_and_user_params,
     },
     decode::Metadatum,
@@ -17,77 +17,48 @@ pub fn parse_referenceable_param_group_list(
     metadata: &[&Metadatum],
     children_lookup: &ChildrenLookup,
 ) -> Option<ReferenceableParamGroupList> {
-    let mut owner_rows: OwnerRows<'_> = OwnerRows::with_capacity(metadata.len());
-    let mut list_id: Option<u32> = None;
+    let mut owner_rows = OwnerRows::with_capacity(metadata.len());
     for &m in metadata {
-        owner_rows.entry(m.id).or_default().push(m);
-        if list_id.is_none() && m.tag_id == TagId::ReferenceableParamGroupList {
-            list_id = Some(m.id);
-        }
+        owner_rows.insert(m.id, m);
     }
 
-    let group_ids = if let Some(list_id) = list_id {
-        let ids = children_lookup.ids_for(metadata, list_id, TagId::ReferenceableParamGroup);
-        if ids.is_empty() {
-            ChildrenLookup::all_ids(metadata, TagId::ReferenceableParamGroup)
-        } else {
-            ids
-        }
-    } else {
-        ChildrenLookup::all_ids(metadata, TagId::ReferenceableParamGroup)
-    };
+    let list_id = children_lookup
+        .all_ids(TagId::ReferenceableParamGroupList)
+        .first()
+        .copied();
+    let ids = list_id
+        .map(|id| children_lookup.ids_for(id, TagId::ReferenceableParamGroup))
+        .filter(|ids| !ids.is_empty())
+        .unwrap_or_else(|| {
+            children_lookup
+                .all_ids(TagId::ReferenceableParamGroup)
+                .to_vec()
+        });
 
-    if group_ids.is_empty() {
+    if ids.is_empty() {
         return None;
     }
 
-    let mut referenceable_param_groups = Vec::with_capacity(group_ids.len());
-    for group_id in group_ids {
-        referenceable_param_groups.push(parse_referenceable_param_group(
-            metadata,
-            children_lookup,
-            &owner_rows,
-            group_id,
-        ));
-    }
+    let referenceable_param_groups = ids
+        .into_iter()
+        .map(|id| {
+            let rows = owner_rows.get(id);
+            let (cv_params, user_params) =
+                parse_cv_and_user_params(&children_lookup.get_param_rows(&owner_rows, id));
+            ReferenceableParamGroup {
+                id: get_attr_text(rows, ACC_ATTR_ID).unwrap_or_default(),
+                cv_params,
+                user_params,
+            }
+        })
+        .collect::<Vec<_>>();
 
     let count = list_id
-        .and_then(|id| {
-            b000_attr_text(
-                ChildrenLookup::rows_for_owner(&owner_rows, id),
-                ACC_ATTR_COUNT,
-            )
-        })
-        .and_then(|s| s.parse::<usize>().ok())
-        .or(Some(referenceable_param_groups.len()));
+        .and_then(|id| get_attr_text(owner_rows.get(id), ACC_ATTR_COUNT))
+        .and_then(|s| s.parse::<usize>().ok());
 
     Some(ReferenceableParamGroupList {
-        count,
+        count: count.or(Some(referenceable_param_groups.len())),
         referenceable_param_groups,
     })
-}
-
-#[inline]
-fn parse_referenceable_param_group<'m>(
-    metadata: &[&'m Metadatum],
-    children_lookup: &ChildrenLookup,
-    owner_rows: &OwnerRows<'m>,
-    group_id: u32,
-) -> ReferenceableParamGroup {
-    let rows = ChildrenLookup::rows_for_owner(owner_rows, group_id);
-    let id = b000_attr_text(rows, ACC_ATTR_ID).unwrap_or_default();
-    let child_rows = children_lookup.param_rows(metadata, owner_rows, group_id);
-    let (cv_params, user_params) = if child_rows.is_empty() {
-        parse_cv_and_user_params(rows)
-    } else {
-        let mut params_meta = Vec::with_capacity(rows.len() + child_rows.len());
-        params_meta.extend_from_slice(rows);
-        params_meta.extend(child_rows);
-        parse_cv_and_user_params(&params_meta)
-    };
-    ReferenceableParamGroup {
-        id,
-        cv_params,
-        user_params,
-    }
 }

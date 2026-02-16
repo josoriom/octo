@@ -40,7 +40,7 @@ fn anpc_mzml1_1_0_header_sections() {
     );
 
     // fileDescription
-    let file_desc = &mzml.file_description;
+    let file_desc = &mzml.file_description.as_ref().unwrap();
 
     // fileContent
     assert_eq!(file_desc.file_content.cv_params.len(), 2);
@@ -122,7 +122,6 @@ fn anpc_mzml1_1_0_header_sections() {
     // softwareList
     let sw_list = mzml.software_list.as_ref().expect("softwareList parsed");
 
-    println!("---::>>{:#?}", sw_list);
     assert_eq!(sw_list.software.len(), 3);
 
     let baf2sql = sw_list.software.iter().find(|s| s.id == "BAF2SQL").unwrap();
@@ -289,7 +288,6 @@ fn anpc_mzml1_1_0_header_sections() {
 
     let sl = run.spectrum_list.as_ref().expect("spectrumList parsed");
     assert_eq!(sl.spectra.len(), 2);
-
     let cl = run
         .chromatogram_list
         .as_ref()
@@ -308,7 +306,7 @@ fn anpc_mzml1_1_0_first_spectrum() {
     let s0 = &sl.spectra[0];
     assert_eq!(s0.index, Some(0));
     assert_eq!(s0.id, "scan=1");
-
+    println!("--::>>{:#?}", s0);
     assert_eq!(s0.cv_params.len(), 6);
     assert_cv(
         CV_REF_MODE,
@@ -498,7 +496,7 @@ fn anpc_mzml1_1_0_last_spectrum() {
     assert_eq!(sl.spectra.len(), 2);
 
     let s_last = sl.spectra.last().expect("last spectrum");
-    assert_eq!(s_last.index, Some(3475));
+    assert_eq!(s_last.index, Some(1));
     assert_eq!(s_last.id, "scan=3476");
 
     assert_eq!(s_last.cv_params.len(), 6);
@@ -1037,7 +1035,6 @@ fn chromatogram_tic_ms_level_array_decodes_to_0_to_9_i64() {
         .as_ref()
         .unwrap()
         .binary_data_arrays[2];
-    println!("---::>> {:#?}", tic);
     let bin = bda2.binary.as_ref().expect("binary present");
     match bin {
         BinaryData::I64(xs) => {

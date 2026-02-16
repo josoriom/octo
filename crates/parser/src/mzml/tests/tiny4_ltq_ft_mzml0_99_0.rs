@@ -44,7 +44,7 @@ fn tiny1_mzml0_99_0_header_sections() {
         Some("http://psidev.sourceforge.net/ms/xml/mzdata/psi-ms.2.0.2.obo")
     );
 
-    let file_desc = &mzml.file_description;
+    let file_desc = &mzml.file_description.as_ref().unwrap();
 
     assert_eq!(file_desc.file_content.cv_params.len(), 1);
     assert_cv(

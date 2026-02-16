@@ -249,7 +249,7 @@ pub fn parse_mzml(bytes: &[u8], slim: bool) -> Result<MzML, String> {
                 match e.name().as_ref() {
                     b"cvList" => mzml.cv_list = Some(parse_cv_list(&mut reader, &e)?),
                     b"fileDescription" => {
-                        mzml.file_description = parse_file_description(&mut reader, &e)?
+                        mzml.file_description = Some(parse_file_description(&mut reader, &e)?);
                     }
                     b"referenceableParamGroupList" => {
                         mzml.referenceable_param_group_list =

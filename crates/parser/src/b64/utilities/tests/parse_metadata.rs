@@ -46,7 +46,7 @@ fn parse_metadata_section_from_test_file(
 
     let slice = &bytes[c0..c1];
 
-    let expected = if codec_id == crate::b64::utilities::parse_metadata::HDR_CODEC_ZSTD {
+    let expected = if codec_id == parse_metadata::HDR_CODEC_ZSTD {
         usize::try_from(expected_uncompressed)
             .unwrap_or_else(|_| panic!("{section_name}: expected_uncompressed overflow"))
     } else {
@@ -78,7 +78,8 @@ fn check_first_spectrum() {
         "spectra",
     );
 
-    assert_eq!(item_meta_count(&spec_meta, 0), 24);
+    assert_eq!(item_meta_count(&spec_meta, 0), 30);
+
     expect_text_one(
         &spec_meta,
         0,
@@ -113,7 +114,7 @@ fn check_first_spectrum() {
     expect_number_one(
         &spec_meta,
         0,
-        TagId::Spectrum,
+        TagId::CvParam,
         CV_CODE_MS,
         1000511,
         CV_CODE_UNKNOWN,
@@ -123,7 +124,7 @@ fn check_first_spectrum() {
     expect_empty_one(
         &spec_meta,
         0,
-        TagId::Spectrum,
+        TagId::CvParam,
         CV_CODE_MS,
         1000579,
         CV_CODE_UNKNOWN,
@@ -132,7 +133,7 @@ fn check_first_spectrum() {
     expect_empty_one(
         &spec_meta,
         0,
-        TagId::Spectrum,
+        TagId::CvParam,
         CV_CODE_MS,
         1000130,
         CV_CODE_UNKNOWN,
@@ -141,7 +142,7 @@ fn check_first_spectrum() {
     expect_number_one(
         &spec_meta,
         0,
-        TagId::Spectrum,
+        TagId::CvParam,
         CV_CODE_MS,
         1000505,
         CV_CODE_UNKNOWN,
@@ -151,7 +152,7 @@ fn check_first_spectrum() {
     expect_number_one(
         &spec_meta,
         0,
-        TagId::Spectrum,
+        TagId::CvParam,
         CV_CODE_MS,
         1000285,
         CV_CODE_UNKNOWN,
@@ -161,7 +162,7 @@ fn check_first_spectrum() {
     expect_empty_one(
         &spec_meta,
         0,
-        TagId::Spectrum,
+        TagId::CvParam,
         CV_CODE_MS,
         1000128,
         CV_CODE_UNKNOWN,
@@ -184,7 +185,7 @@ fn check_first_spectrum() {
     expect_number_one(
         &spec_meta,
         0,
-        TagId::Scan,
+        TagId::CvParam,
         CV_CODE_MS,
         1000016,
         CV_CODE_UO,
@@ -196,7 +197,7 @@ fn check_first_spectrum() {
     expect_number_one(
         &spec_meta,
         0,
-        TagId::ScanWindow,
+        TagId::CvParam,
         CV_CODE_MS,
         1000501,
         CV_CODE_MS,
@@ -206,7 +207,7 @@ fn check_first_spectrum() {
     expect_number_one(
         &spec_meta,
         0,
-        TagId::ScanWindow,
+        TagId::CvParam,
         CV_CODE_MS,
         1000500,
         CV_CODE_MS,
@@ -230,7 +231,7 @@ fn check_first_spectrum() {
     expect_empty_one(
         &spec_meta,
         0,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000523,
         CV_CODE_UNKNOWN,
@@ -239,7 +240,7 @@ fn check_first_spectrum() {
     expect_empty_count(
         &spec_meta,
         0,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000576,
         CV_CODE_UNKNOWN,
@@ -249,7 +250,7 @@ fn check_first_spectrum() {
     expect_empty_one(
         &spec_meta,
         0,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000514,
         CV_CODE_MS,
@@ -258,7 +259,7 @@ fn check_first_spectrum() {
     expect_empty_one(
         &spec_meta,
         0,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000521,
         CV_CODE_UNKNOWN,
@@ -267,7 +268,7 @@ fn check_first_spectrum() {
     expect_empty_one(
         &spec_meta,
         0,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000515,
         CV_CODE_MS,
@@ -292,7 +293,7 @@ fn check_second_spectrum() {
         "spectra",
     );
 
-    assert_eq!(item_meta_count(&spec_meta, 1), 30);
+    assert_eq!(item_meta_count(&spec_meta, 1), 39);
 
     expect_text_one(
         &spec_meta,
@@ -304,6 +305,7 @@ fn check_second_spectrum() {
         0,
         "scan=3476",
     );
+
     expect_number_one(
         &spec_meta,
         1,
@@ -312,7 +314,7 @@ fn check_second_spectrum() {
         ACC_ATTR_INDEX,
         CV_CODE_UNKNOWN,
         0,
-        3475.0,
+        1.0,
     );
     expect_number_one(
         &spec_meta,
@@ -328,7 +330,7 @@ fn check_second_spectrum() {
     expect_number_one(
         &spec_meta,
         1,
-        TagId::Spectrum,
+        TagId::CvParam,
         CV_CODE_MS,
         1000511,
         CV_CODE_UNKNOWN,
@@ -338,7 +340,7 @@ fn check_second_spectrum() {
     expect_empty_one(
         &spec_meta,
         1,
-        TagId::Spectrum,
+        TagId::CvParam,
         CV_CODE_MS,
         1000580,
         CV_CODE_UNKNOWN,
@@ -347,7 +349,7 @@ fn check_second_spectrum() {
     expect_empty_one(
         &spec_meta,
         1,
-        TagId::Spectrum,
+        TagId::CvParam,
         CV_CODE_MS,
         1000130,
         CV_CODE_UNKNOWN,
@@ -356,7 +358,7 @@ fn check_second_spectrum() {
     expect_number_one(
         &spec_meta,
         1,
-        TagId::Spectrum,
+        TagId::CvParam,
         CV_CODE_MS,
         1000505,
         CV_CODE_UNKNOWN,
@@ -366,7 +368,7 @@ fn check_second_spectrum() {
     expect_number_one(
         &spec_meta,
         1,
-        TagId::Spectrum,
+        TagId::CvParam,
         CV_CODE_MS,
         1000285,
         CV_CODE_UNKNOWN,
@@ -376,7 +378,7 @@ fn check_second_spectrum() {
     expect_empty_one(
         &spec_meta,
         1,
-        TagId::Spectrum,
+        TagId::CvParam,
         CV_CODE_MS,
         1000127,
         CV_CODE_UNKNOWN,
@@ -386,7 +388,7 @@ fn check_second_spectrum() {
     expect_number_one(
         &spec_meta,
         1,
-        TagId::Scan,
+        TagId::CvParam,
         CV_CODE_MS,
         1000016,
         CV_CODE_UO,
@@ -398,7 +400,7 @@ fn check_second_spectrum() {
     expect_number_one(
         &spec_meta,
         1,
-        TagId::ScanWindow,
+        TagId::CvParam,
         CV_CODE_MS,
         1000501,
         CV_CODE_MS,
@@ -408,7 +410,7 @@ fn check_second_spectrum() {
     expect_number_one(
         &spec_meta,
         1,
-        TagId::ScanWindow,
+        TagId::CvParam,
         CV_CODE_MS,
         1000500,
         CV_CODE_MS,
@@ -431,7 +433,7 @@ fn check_second_spectrum() {
     expect_number_one(
         &spec_meta,
         1,
-        TagId::IsolationWindow,
+        TagId::CvParam,
         CV_CODE_MS,
         1000827,
         CV_CODE_MS,
@@ -441,7 +443,7 @@ fn check_second_spectrum() {
     expect_number_one(
         &spec_meta,
         1,
-        TagId::IsolationWindow,
+        TagId::CvParam,
         CV_CODE_MS,
         1000828,
         CV_CODE_MS,
@@ -451,7 +453,7 @@ fn check_second_spectrum() {
     expect_number_one(
         &spec_meta,
         1,
-        TagId::IsolationWindow,
+        TagId::CvParam,
         CV_CODE_MS,
         1000829,
         CV_CODE_MS,
@@ -473,7 +475,7 @@ fn check_second_spectrum() {
     expect_number_one(
         &spec_meta,
         1,
-        TagId::SelectedIon,
+        TagId::CvParam,
         CV_CODE_MS,
         1000744,
         CV_CODE_MS,
@@ -485,7 +487,7 @@ fn check_second_spectrum() {
     expect_empty_one(
         &spec_meta,
         1,
-        TagId::Activation,
+        TagId::CvParam,
         CV_CODE_MS,
         1001880,
         CV_CODE_UNKNOWN,
@@ -494,7 +496,7 @@ fn check_second_spectrum() {
     expect_number_one(
         &spec_meta,
         1,
-        TagId::Activation,
+        TagId::CvParam,
         CV_CODE_MS,
         1000045,
         CV_CODE_UNKNOWN,
@@ -506,7 +508,7 @@ fn check_second_spectrum() {
     expect_empty_one(
         &spec_meta,
         1,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000523,
         CV_CODE_UNKNOWN,
@@ -515,7 +517,7 @@ fn check_second_spectrum() {
     expect_empty_count(
         &spec_meta,
         1,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000576,
         CV_CODE_UNKNOWN,
@@ -525,7 +527,7 @@ fn check_second_spectrum() {
     expect_empty_one(
         &spec_meta,
         1,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000514,
         CV_CODE_MS,
@@ -534,7 +536,7 @@ fn check_second_spectrum() {
     expect_empty_one(
         &spec_meta,
         1,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000521,
         CV_CODE_UNKNOWN,
@@ -543,7 +545,7 @@ fn check_second_spectrum() {
     expect_empty_one(
         &spec_meta,
         1,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000515,
         CV_CODE_MS,
@@ -556,7 +558,7 @@ fn assert_chromatogram_binary_data_array_list(meta: &[Metadatum], item_index: u3
     expect_empty_one(
         meta,
         item_index,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000523,
         CV_CODE_UNKNOWN,
@@ -565,7 +567,7 @@ fn assert_chromatogram_binary_data_array_list(meta: &[Metadatum], item_index: u3
     expect_empty_count(
         meta,
         item_index,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000576,
         CV_CODE_UNKNOWN,
@@ -575,7 +577,7 @@ fn assert_chromatogram_binary_data_array_list(meta: &[Metadatum], item_index: u3
     expect_empty_one(
         meta,
         item_index,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000595,
         CV_CODE_UO,
@@ -585,7 +587,7 @@ fn assert_chromatogram_binary_data_array_list(meta: &[Metadatum], item_index: u3
     expect_empty_one(
         meta,
         item_index,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000521,
         CV_CODE_UNKNOWN,
@@ -594,7 +596,7 @@ fn assert_chromatogram_binary_data_array_list(meta: &[Metadatum], item_index: u3
     expect_empty_one(
         meta,
         item_index,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000515,
         CV_CODE_MS,
@@ -604,7 +606,7 @@ fn assert_chromatogram_binary_data_array_list(meta: &[Metadatum], item_index: u3
     expect_empty_one(
         meta,
         item_index,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000522,
         CV_CODE_UNKNOWN,
@@ -613,7 +615,7 @@ fn assert_chromatogram_binary_data_array_list(meta: &[Metadatum], item_index: u3
     expect_text_one(
         meta,
         item_index,
-        TagId::BinaryDataArray,
+        TagId::CvParam,
         CV_CODE_MS,
         1000786,
         CV_CODE_UO,
@@ -638,8 +640,8 @@ fn check_first_chromatogram() {
         header.chrom_meta_uncompressed_bytes,
         "chromatograms",
     );
-    assert_eq!(chrom_meta.len(), 38);
-    assert_eq!(item_meta_count(&chrom_meta, 0), 20);
+    assert_eq!(chrom_meta.len(), 45);
+    assert_eq!(item_meta_count(&chrom_meta, 0), 24);
 
     // Chromatogram
     expect_text_one(
@@ -676,7 +678,7 @@ fn check_first_chromatogram() {
     expect_empty_one(
         &chrom_meta,
         0,
-        TagId::Chromatogram,
+        TagId::CvParam,
         CV_CODE_MS,
         1000235,
         CV_CODE_UNKNOWN,
@@ -702,10 +704,10 @@ fn check_second_chromatogram() {
         header.chrom_meta_uncompressed_bytes,
         "chromatograms",
     );
-    assert_eq!(chrom_meta.len(), 38);
-    assert_eq!(item_meta_count(&chrom_meta, 1), 18);
 
-    // Chromatogram
+    assert_eq!(chrom_meta.len(), 45);
+    assert_eq!(item_meta_count(&chrom_meta, 1), 21);
+
     expect_text_one(
         &chrom_meta,
         1,
@@ -740,7 +742,7 @@ fn check_second_chromatogram() {
     expect_empty_one(
         &chrom_meta,
         1,
-        TagId::Chromatogram,
+        TagId::CvParam,
         CV_CODE_MS,
         1000628,
         CV_CODE_UNKNOWN,

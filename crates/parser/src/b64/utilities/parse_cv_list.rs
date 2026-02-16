@@ -1,7 +1,7 @@
 use crate::{
     b64::utilities::{
         children_lookup::{ChildrenLookup, OwnerRows},
-        common::b000_attr_text,
+        common::get_attr_text,
     },
     decode::Metadatum,
     mzml::{
@@ -16,38 +16,22 @@ use crate::{
 
 #[inline]
 pub fn parse_cv_list(metadata: &[&Metadatum], children_lookup: &ChildrenLookup) -> Option<CvList> {
-    let mut owner_rows: OwnerRows<'_> = OwnerRows::with_capacity(metadata.len());
-
-    let mut list_id: Option<u32> = None;
-    let mut fallback_list_id: Option<u32> = None;
-
+    let mut owner_rows = OwnerRows::with_capacity(metadata.len());
     for &m in metadata {
-        owner_rows.entry(m.id).or_default().push(m);
-
-        match m.tag_id {
-            TagId::CvList => {
-                list_id.get_or_insert(m.id);
-            }
-            TagId::Cv => {
-                if fallback_list_id.is_none() && m.parent_index != 0 {
-                    fallback_list_id = Some(m.parent_index);
-                }
-            }
-            _ => {}
-        }
+        owner_rows.insert(m.id, m);
     }
 
-    let list_id = list_id.or(fallback_list_id)?;
+    let list_id = children_lookup.all_ids(TagId::CvList).first().copied()?;
+    let cv_ids = children_lookup.ids_for(list_id, TagId::Cv);
 
-    let cv_ids = children_lookup.ids_for(metadata, list_id, TagId::Cv);
     if cv_ids.is_empty() {
         return None;
     }
 
-    let mut cv = Vec::with_capacity(cv_ids.len());
-    for id in cv_ids {
-        cv.push(parse_cv(&owner_rows, id));
-    }
+    let cv = cv_ids
+        .iter()
+        .map(|&id| parse_cv(&owner_rows, id))
+        .collect::<Vec<_>>();
 
     Some(CvList {
         count: Some(cv.len()),
@@ -57,20 +41,14 @@ pub fn parse_cv_list(metadata: &[&Metadatum], children_lookup: &ChildrenLookup) 
 
 #[inline]
 fn parse_cv(owner_rows: &OwnerRows, cv_id: u32) -> Cv {
-    let rows = ChildrenLookup::rows_for_owner(owner_rows, cv_id);
-
-    let id = b000_attr_text(rows, ACC_ATTR_LABEL)
-        .or_else(|| b000_attr_text(rows, ACC_ATTR_ID))
-        .unwrap_or_default();
-
-    let full_name = b000_attr_text(rows, ACC_ATTR_CV_FULL_NAME).filter(|s| !s.is_empty());
-    let version = b000_attr_text(rows, ACC_ATTR_CV_VERSION).filter(|s| !s.is_empty());
-    let uri = b000_attr_text(rows, ACC_ATTR_CV_URI).filter(|s| !s.is_empty());
+    let rows = owner_rows.get(cv_id);
 
     Cv {
-        id,
-        full_name,
-        version,
-        uri,
+        id: get_attr_text(rows, ACC_ATTR_ID)
+            .or_else(|| get_attr_text(rows, ACC_ATTR_LABEL))
+            .unwrap_or_default(),
+        full_name: get_attr_text(rows, ACC_ATTR_CV_FULL_NAME).filter(|s| !s.is_empty()),
+        version: get_attr_text(rows, ACC_ATTR_CV_VERSION).filter(|s| !s.is_empty()),
+        uri: get_attr_text(rows, ACC_ATTR_CV_URI).filter(|s| !s.is_empty()),
     }
 }

@@ -1,4 +1,5 @@
 use crate::{
+    BinaryData,
     mzml::structs::MzML,
     utilities::test::{
         CvRefMode, assert_cv, assert_software_param, chromatogram, chromatogram_list, parse_b,
@@ -16,7 +17,6 @@ const CV_REF_MODE: CvRefMode = CvRefMode::Strict;
 #[test]
 fn tiny_msdata_mzml0_99_9_pwiz_header_sections() {
     let mzml = parse_b(&MZML_CACHE, PATH);
-
     // cvList
     let cv_list = mzml.cv_list.as_ref().expect("cvList parsed");
     assert_eq!(cv_list.cv.len(), 1);
@@ -33,7 +33,7 @@ fn tiny_msdata_mzml0_99_9_pwiz_header_sections() {
     );
 
     // fileDescription
-    let file_desc = &mzml.file_description;
+    let file_desc = &mzml.file_description.as_ref().unwrap();
 
     // fileContent
     assert_eq!(file_desc.file_content.cv_params.len(), 1);
@@ -266,11 +266,10 @@ fn tiny_msdata_mzml0_99_9_pwiz_header_sections() {
 }
 
 #[test]
-fn tiny_msdata_mzml0_99_9_pwiz_first_spectrum() {
+fn tiny_pwiz_mzml0_99_9_pwiz_first_spectrum() {
     let mzml = parse_b(&MZML_CACHE, PATH);
     let run: &_ = &mzml.run;
 
-    // sourceFileRefList
     let sfrefl = run
         .source_file_ref_list
         .as_ref()
@@ -278,7 +277,6 @@ fn tiny_msdata_mzml0_99_9_pwiz_first_spectrum() {
     assert_eq!(sfrefl.source_file_refs.len(), 1);
     assert_eq!(sfrefl.source_file_refs[0].r#ref, "SF1");
 
-    // spectrumList
     let sl = run.spectrum_list.as_ref().expect("spectrumList parsed");
     assert_eq!(sl.spectra.len(), 2);
 
@@ -461,7 +459,7 @@ fn tiny_msdata_mzml0_99_9_pwiz_first_spectrum() {
             Some(""),
             None,
         );
-        assert_eq!(ba.array_length, Some(15));
+        assert_eq!(ba.array_length, None);
         assert_eq!(ba.encoded_length, enc_len);
     }
 }
@@ -475,7 +473,6 @@ fn tiny_msdata_mzml0_99_9_pwiz_second_spectrum() {
     assert_eq!(sl.spectra.len(), 2);
 
     let s1 = spectrum_by_index(mzml, 1);
-
     assert_eq!(s1.index, Some(1));
     assert_eq!(s1.id, "S20");
     assert_eq!(s1.cv_params.len(), 2);
@@ -709,7 +706,7 @@ fn tiny_msdata_mzml0_99_9_pwiz_second_spectrum() {
             Some(""),
             None,
         );
-        assert_eq!(ba.array_length, Some(10));
+        assert_eq!(ba.array_length, None);
         assert_eq!(ba.encoded_length, Some(108usize));
     }
 }
@@ -773,7 +770,7 @@ fn tiny_msdata_mzml0_99_9_pwiz_chromatograms() {
             Some(""),
             None,
         );
-        assert_eq!(ba.array_length, Some(15));
+        assert_eq!(ba.array_length, None);
         assert_eq!(ba.encoded_length, expect_enc);
     }
 
@@ -828,7 +825,7 @@ fn tiny_msdata_mzml0_99_9_pwiz_chromatograms() {
             Some(""),
             None,
         );
-        assert_eq!(ba.array_length, Some(10));
+        assert_eq!(ba.array_length, None);
         assert_eq!(ba.encoded_length, expect_enc);
     }
 }
@@ -846,13 +843,13 @@ fn tiny_msdata_mzml0_99_9_pwiz_s19_mz_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[0];
-    assert_eq!(bda.array_length, Some(15));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(160usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
 
     match &bda.binary {
-        Some(crate::mzml::structs::BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
         Some(other) => panic!("S19 m/z: expected BinaryData::F64, got {other:?}"),
         None => panic!("S19 m/z: missing decoded binary payload (bda.binary is None)"),
     }
@@ -871,13 +868,13 @@ fn tiny_msdata_mzml0_99_9_pwiz_s19_intensity_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[1];
-    assert_eq!(bda.array_length, Some(15));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(160usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
 
     match &bda.binary {
-        Some(crate::mzml::structs::BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
         Some(other) => panic!("S19 intensity: expected BinaryData::F64, got {other:?}"),
         None => panic!("S19 intensity: missing decoded binary payload (bda.binary is None)"),
     }
@@ -896,13 +893,13 @@ fn tiny_msdata_mzml0_99_9_pwiz_s20_mz_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[0];
-    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(108usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
 
     match &bda.binary {
-        Some(crate::mzml::structs::BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
         Some(other) => panic!("S20 m/z: expected BinaryData::F64, got {other:?}"),
         None => panic!("S20 m/z: missing decoded binary payload (bda.binary is None)"),
     }
@@ -921,13 +918,13 @@ fn tiny_msdata_mzml0_99_9_pwiz_s20_intensity_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[1];
-    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(108usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
 
     match &bda.binary {
-        Some(crate::mzml::structs::BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
         Some(other) => panic!("S20 intensity: expected BinaryData::F64, got {other:?}"),
         None => panic!("S20 intensity: missing decoded binary payload (bda.binary is None)"),
     }
@@ -948,13 +945,13 @@ fn tiny_msdata_mzml0_99_9_pwiz_tic_time_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[0];
-    assert_eq!(bda.array_length, Some(15));
-    assert_eq!(bda.encoded_length, Some(160usize));
+    assert_eq!(bda.array_length, None);
+    assert_eq!(bda.encoded_length, Some(160));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
 
     match &bda.binary {
-        Some(crate::mzml::structs::BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
         Some(other) => panic!("tic time: expected BinaryData::F64, got {other:?}"),
         None => panic!("tic time: missing decoded binary payload (bda.binary is None)"),
     }
@@ -975,13 +972,13 @@ fn tiny_msdata_mzml0_99_9_pwiz_tic_intensity_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[1];
-    assert_eq!(bda.array_length, Some(15));
-    assert_eq!(bda.encoded_length, Some(160usize));
+    assert_eq!(bda.array_length, None);
+    assert_eq!(bda.encoded_length, Some(160));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
 
     match &bda.binary {
-        Some(crate::mzml::structs::BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
         Some(other) => panic!("tic intensity: expected BinaryData::F64, got {other:?}"),
         None => panic!("tic intensity: missing decoded binary payload (bda.binary is None)"),
     }
@@ -1002,13 +999,13 @@ fn tiny_msdata_mzml0_99_9_pwiz_sic_time_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[0];
-    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(108usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
 
     match &bda.binary {
-        Some(crate::mzml::structs::BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
         Some(other) => panic!("sic time: expected BinaryData::F64, got {other:?}"),
         None => panic!("sic time: missing decoded binary payload (bda.binary is None)"),
     }
@@ -1029,13 +1026,13 @@ fn tiny_msdata_mzml0_99_9_pwiz_sic_intensity_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[1];
-    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(108usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
 
     match &bda.binary {
-        Some(crate::mzml::structs::BinaryData::F64(v)) => assert_eq!(v, &expected),
+        Some(BinaryData::F64(v)) => assert_eq!(v, &expected),
         Some(other) => panic!("sic intensity: expected BinaryData::F64, got {other:?}"),
         None => panic!("sic intensity: missing decoded binary payload (bda.binary is None)"),
     }

@@ -88,6 +88,7 @@ fn parse_spectrum_list_from_test_file() -> SpectrumList {
 #[derive(Clone, Copy, Debug)]
 enum ExpectedValue<'a> {
     None,
+    #[allow(dead_code)]
     Str(&'a str),
     Num(f64),
 }
@@ -263,7 +264,6 @@ fn assert_cv_params_exact(actual: &[CvParam], expected: &[ExpectedCv<'_>]) {
 #[test]
 fn spectrum_list_strict_attributes_and_count() {
     let sl = parse_spectrum_list_from_test_file();
-
     assert_eq!(sl.count, Some(3476));
     assert_eq!(
         sl.default_data_processing_ref.as_deref(),
@@ -495,7 +495,7 @@ fn spectrum1_strict_full_structure_with_precursor_list() {
     let s = &sl.spectra[1];
 
     assert_eq!(s.id.as_str(), "scan=3476");
-    assert_eq!(s.index, Some(3475));
+    assert_eq!(s.index, Some(1));
     assert_eq!(s.default_array_length, Some(4340));
 
     assert_eq!(s.native_id.as_deref(), None);

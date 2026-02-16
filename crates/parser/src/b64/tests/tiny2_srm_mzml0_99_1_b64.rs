@@ -34,7 +34,7 @@ fn tiny1_srm_mzml0_99_1_header_sections() {
     );
 
     // fileDescription
-    let file_desc = &mzml.file_description;
+    let file_desc = &mzml.file_description.as_ref().unwrap();
 
     // fileContent
     assert_eq!(file_desc.file_content.cv_params.len(), 2);

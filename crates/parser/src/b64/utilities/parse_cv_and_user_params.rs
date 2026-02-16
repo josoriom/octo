@@ -17,7 +17,7 @@ where
     let mut groups: OwnerRows<'m> = OwnerRows::new();
 
     for m in iter {
-        groups.entry(m.id).or_default().push(m);
+        groups.insert(m.id, m);
     }
 
     if groups.is_empty() {
@@ -83,7 +83,7 @@ pub fn parse_cv_and_user_params(metadata: &[&Metadatum]) -> (Vec<CvParam>, Vec<U
                 r#type: None,
                 unit_accession,
                 unit_cv_ref,
-                unit_name: None, // keep existing behavior (don’t populate unit_name for user params)
+                unit_name: None,
                 value,
             });
         }

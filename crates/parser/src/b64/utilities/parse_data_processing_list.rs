@@ -1,7 +1,7 @@
 use crate::{
     b64::utilities::{
         children_lookup::{ChildrenLookup, OwnerRows},
-        common::b000_attr_text,
+        common::get_attr_text,
         parse_cv_and_user_params,
     },
     decode::Metadatum,
@@ -19,40 +19,28 @@ pub fn parse_data_processing_list(
     metadata: &[&Metadatum],
     children_lookup: &ChildrenLookup,
 ) -> Option<DataProcessingList> {
-    let mut owner_rows: OwnerRows<'_> = OwnerRows::with_capacity(metadata.len());
-
-    let mut list_id: Option<u32> = None;
+    let mut owner_rows = OwnerRows::with_capacity(metadata.len());
     for &m in metadata {
-        owner_rows.entry(m.id).or_default().push(m);
-        if list_id.is_none() && m.tag_id == TagId::DataProcessingList {
-            list_id = Some(m.id);
-        }
+        owner_rows.insert(m.id, m);
     }
 
-    let data_processing_ids = if let Some(list_id) = list_id {
-        let ids = children_lookup.ids_for(metadata, list_id, TagId::DataProcessing);
-        if ids.is_empty() {
-            ChildrenLookup::all_ids(metadata, TagId::DataProcessing)
-        } else {
-            ids
-        }
-    } else {
-        ChildrenLookup::all_ids(metadata, TagId::DataProcessing)
-    };
+    let list_id = children_lookup
+        .all_ids(TagId::DataProcessingList)
+        .first()
+        .copied();
+    let ids = list_id
+        .map(|id| children_lookup.ids_for(id, TagId::DataProcessing))
+        .filter(|ids| !ids.is_empty())
+        .unwrap_or_else(|| children_lookup.all_ids(TagId::DataProcessing).to_vec());
 
-    if data_processing_ids.is_empty() {
+    if ids.is_empty() {
         return None;
     }
 
-    let mut data_processing = Vec::with_capacity(data_processing_ids.len());
-    for id in data_processing_ids {
-        data_processing.push(parse_data_processing(
-            metadata,
-            children_lookup,
-            &owner_rows,
-            id,
-        ));
-    }
+    let data_processing: Vec<DataProcessing> = ids
+        .iter()
+        .map(|&id| parse_data_processing(children_lookup, &owner_rows, id))
+        .collect();
 
     Some(DataProcessingList {
         count: Some(data_processing.len()),
@@ -61,110 +49,60 @@ pub fn parse_data_processing_list(
 }
 
 #[inline]
-fn parse_data_processing<'m>(
-    metadata: &[&'m Metadatum],
+fn parse_data_processing(
     children_lookup: &ChildrenLookup,
-    owner_rows: &OwnerRows<'m>,
+    owner_rows: &OwnerRows,
     data_processing_id: u32,
 ) -> DataProcessing {
-    let rows = ChildrenLookup::rows_for_owner(owner_rows, data_processing_id);
-
-    let id = b000_attr_text(rows, ACC_ATTR_ID).unwrap_or_default();
-    let software_ref = b000_attr_text(rows, ACC_ATTR_SOFTWARE_REF).filter(|s| !s.is_empty());
-
-    let processing_method =
-        parse_processing_methods(metadata, children_lookup, owner_rows, data_processing_id);
+    let rows = owner_rows.get(data_processing_id);
 
     DataProcessing {
-        id,
-        software_ref,
-        processing_method,
+        id: get_attr_text(rows, ACC_ATTR_ID).unwrap_or_default(),
+        software_ref: get_attr_text(rows, ACC_ATTR_SOFTWARE_REF).filter(|s| !s.is_empty()),
+        processing_method: children_lookup
+            .ids_for(data_processing_id, TagId::ProcessingMethod)
+            .iter()
+            .map(|&id| parse_processing_method(children_lookup, owner_rows, id))
+            .collect(),
     }
 }
 
 #[inline]
-fn parse_processing_methods<'m>(
-    metadata: &[&'m Metadatum],
+fn parse_processing_method(
     children_lookup: &ChildrenLookup,
-    owner_rows: &OwnerRows<'m>,
-    data_processing_id: u32,
-) -> Vec<ProcessingMethod> {
-    let ids = children_lookup.ids_for(metadata, data_processing_id, TagId::ProcessingMethod);
-    if ids.is_empty() {
-        return Vec::new();
-    }
-
-    let mut out = Vec::with_capacity(ids.len());
-    for id in ids {
-        out.push(parse_processing_method(
-            metadata,
-            children_lookup,
-            owner_rows,
-            id,
-        ));
-    }
-    out
-}
-
-#[inline]
-fn parse_processing_method<'m>(
-    metadata: &[&'m Metadatum],
-    children_lookup: &ChildrenLookup,
-    owner_rows: &OwnerRows<'m>,
+    owner_rows: &OwnerRows,
     processing_method_id: u32,
 ) -> ProcessingMethod {
-    let rows = ChildrenLookup::rows_for_owner(owner_rows, processing_method_id);
-
-    let order = b000_attr_text(rows, ACC_ATTR_ORDER).and_then(|s| s.parse::<u32>().ok());
-    let software_ref = b000_attr_text(rows, ACC_ATTR_SOFTWARE_REF).filter(|s| !s.is_empty());
-
-    let referenceable_param_group_ref = parse_referenceable_param_group_refs(
-        metadata,
-        children_lookup,
-        owner_rows,
-        processing_method_id,
-    );
-
-    let child_meta = children_lookup.param_rows(metadata, owner_rows, processing_method_id);
-
-    let (cv_param, user_param) = if child_meta.is_empty() {
-        parse_cv_and_user_params(rows)
-    } else {
-        let mut params_meta = Vec::with_capacity(rows.len() + child_meta.len());
-        params_meta.extend_from_slice(rows);
-        params_meta.extend(child_meta);
-        parse_cv_and_user_params(&params_meta)
-    };
+    let rows = owner_rows.get(processing_method_id);
+    let (cv_param, user_param) =
+        parse_cv_and_user_params(&children_lookup.get_param_rows(owner_rows, processing_method_id));
 
     ProcessingMethod {
-        order,
-        software_ref,
-        referenceable_param_group_ref,
+        order: get_attr_text(rows, ACC_ATTR_ORDER).and_then(|s| s.parse().ok()),
+        software_ref: get_attr_text(rows, ACC_ATTR_SOFTWARE_REF).filter(|s| !s.is_empty()),
+        referenceable_param_group_ref: parse_referenceable_param_group_refs(
+            children_lookup,
+            owner_rows,
+            processing_method_id,
+        ),
         cv_param,
         user_param,
     }
 }
 
 #[inline]
-fn parse_referenceable_param_group_refs<'m>(
-    metadata: &[&'m Metadatum],
+fn parse_referenceable_param_group_refs(
     children_lookup: &ChildrenLookup,
-    owner_rows: &OwnerRows<'m>,
+    owner_rows: &OwnerRows,
     parent_id: u32,
 ) -> Vec<ReferenceableParamGroupRef> {
-    let ref_ids = children_lookup.ids_for(metadata, parent_id, TagId::ReferenceableParamGroupRef);
-    if ref_ids.is_empty() {
-        return Vec::new();
-    }
-
-    let mut out = Vec::with_capacity(ref_ids.len());
-    for ref_id in ref_ids {
-        let ref_rows = ChildrenLookup::rows_for_owner(owner_rows, ref_id);
-        if let Some(r) = b000_attr_text(ref_rows, ACC_ATTR_REF) {
-            if !r.is_empty() {
-                out.push(ReferenceableParamGroupRef { r#ref: r });
-            }
-        }
-    }
-    out
+    children_lookup
+        .ids_for(parent_id, TagId::ReferenceableParamGroupRef)
+        .iter()
+        .filter_map(|&id| {
+            get_attr_text(owner_rows.get(id), ACC_ATTR_REF)
+                .filter(|s| !s.is_empty())
+                .map(|r| ReferenceableParamGroupRef { r#ref: r })
+        })
+        .collect()
 }

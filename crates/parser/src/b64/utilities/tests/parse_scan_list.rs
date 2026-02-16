@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf};
 
-use crate::b64::utilities::children_lookup::ChildrenLookup;
+use crate::b64::utilities::children_lookup::{ChildrenLookup, OwnerRows};
 use crate::mzml::schema::TagId;
 use crate::{
     CvParam,
@@ -87,7 +87,7 @@ fn first_spectrum_scan_list_cv_params_item_by_item() {
     let bytes = read_bytes(PATH);
     let header = parse_header(&bytes).expect("parse_header failed");
 
-    let meta = parse_metadata_section_from_test_file(
+    let metadata_section = parse_metadata_section_from_test_file(
         header.off_spec_meta,
         header.off_chrom_meta,
         header.spectrum_count,
@@ -100,21 +100,22 @@ fn first_spectrum_scan_list_cv_params_item_by_item() {
         "spectra",
     );
 
-    let scan_item_index = meta
+    let mut rows_by_id = OwnerRows::with_capacity(metadata_section.len());
+    for metadatum in &metadata_section {
+        rows_by_id.insert(metadatum.id, metadatum);
+    }
+
+    let spectrum_id = metadata_section
         .iter()
-        .find(|m| m.tag_id == TagId::Scan)
-        .map(|m| m.item_index)
-        .expect("no Scan entries found in spectra metadata");
+        .find(|metadatum| metadatum.tag_id == TagId::Spectrum)
+        .map(|metadatum| metadatum.id)
+        .expect("no Spectrum entries found in spectra metadata");
 
-    let scoped: Vec<&Metadatum> = meta
-        .iter()
-        .filter(|m| m.item_index == scan_item_index)
-        .collect();
+    let metadata_references: Vec<&Metadatum> = metadata_section.iter().collect();
+    let children_lookup = ChildrenLookup::new(&metadata_references);
 
-    let children_lookup = ChildrenLookup::new(&meta);
-
-    let scan_list =
-        parse_scan_list(&scoped, &children_lookup).expect("parse_scan_list returned None");
+    let scan_list = parse_scan_list(&rows_by_id, &children_lookup, spectrum_id)
+        .expect("parse_scan_list returned None");
     assert_eq!(scan_list.count, Some(1));
     assert_eq!(scan_list.scans.len(), 1);
 
@@ -183,7 +184,7 @@ fn second_spectrum_scan_list_cv_params_item_by_item() {
     let bytes = read_bytes(PATH);
     let header = parse_header(&bytes).expect("parse_header failed");
 
-    let meta = parse_metadata_section_from_test_file(
+    let metadata_section = parse_metadata_section_from_test_file(
         header.off_spec_meta,
         header.off_chrom_meta,
         header.spectrum_count,
@@ -196,35 +197,40 @@ fn second_spectrum_scan_list_cv_params_item_by_item() {
         "spectra",
     );
 
-    let mut scan_item_indices: Vec<_> = meta
+    let mut rows_by_id = OwnerRows::with_capacity(metadata_section.len());
+    for metadatum in &metadata_section {
+        rows_by_id.insert(metadatum.id, metadatum);
+    }
+
+    let mut spectrum_item_indices: Vec<_> = metadata_section
         .iter()
-        .filter(|m| m.tag_id == TagId::Scan)
+        .filter(|m| m.tag_id == TagId::Spectrum)
         .map(|m| m.item_index)
         .collect();
+    spectrum_item_indices.sort_unstable();
+    spectrum_item_indices.dedup();
 
-    scan_item_indices.sort_unstable();
-    scan_item_indices.dedup();
-
-    let scan_item_index = scan_item_indices
+    let target_item_index = spectrum_item_indices
         .get(1)
         .copied()
-        .expect("no second Scan item_index found in spectra metadata");
+        .expect("no second Spectrum item_index found");
 
-    let scoped: Vec<&Metadatum> = meta
+    let spectrum_id = metadata_section
         .iter()
-        .filter(|m| m.item_index == scan_item_index)
-        .collect();
+        .find(|m| m.tag_id == TagId::Spectrum && m.item_index == target_item_index)
+        .map(|m| m.id)
+        .expect("target spectrum ID not found");
 
-    let children_lookup = ChildrenLookup::new(&meta);
+    let metadata_references: Vec<&Metadatum> = metadata_section.iter().collect();
+    let children_lookup = ChildrenLookup::new(&metadata_references);
 
-    let scan_list =
-        parse_scan_list(&scoped, &children_lookup).expect("parse_scan_list returned None");
+    let scan_list = parse_scan_list(&rows_by_id, &children_lookup, spectrum_id)
+        .expect("parse_scan_list returned None");
 
     assert_eq!(scan_list.count, Some(1));
     assert_eq!(scan_list.scans.len(), 1);
 
     let scan = &scan_list.scans[0];
-
     let p = scan
         .cv_params
         .iter()

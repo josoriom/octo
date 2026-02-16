@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MzML {
     pub cv_list: Option<CvList>,
-    pub file_description: FileDescription,
+    pub file_description: Option<FileDescription>,
     pub referenceable_param_group_list: Option<ReferenceableParamGroupList>,
     pub sample_list: Option<SampleList>,
     pub instrument_list: Option<InstrumentList>,
@@ -213,6 +213,8 @@ pub struct ReferenceableParamGroup {
 pub struct SampleList {
     pub count: Option<u32>,
     pub samples: Vec<Sample>,
+    pub cv_params: Vec<CvParam>,
+    pub user_params: Vec<UserParam>,
 }
 
 /// <sample>
@@ -221,6 +223,8 @@ pub struct Sample {
     pub id: String,
     pub name: String,
     pub referenceable_param_group_ref: Option<ReferenceableParamGroupRef>,
+    pub cv_params: Vec<CvParam>,
+    pub user_params: Vec<UserParam>,
 }
 
 /// <scanSettingsList> / <acquisitionSettingsList>
@@ -428,6 +432,8 @@ pub struct Activation {
 pub struct ProductList {
     pub count: Option<usize>,
     pub products: Vec<Product>,
+    pub cv_params: Vec<CvParam>,
+    pub user_params: Vec<UserParam>,
 }
 
 /// <product>
@@ -436,8 +442,9 @@ pub struct Product {
     pub spectrum_ref: Option<String>,
     pub source_file_ref: Option<String>,
     pub external_spectrum_id: Option<String>,
-
     pub isolation_window: Option<IsolationWindow>,
+    pub cv_params: Vec<CvParam>,
+    pub user_params: Vec<UserParam>,
 }
 
 /// <binaryDataArrayList>

@@ -33,7 +33,6 @@ pub fn parse_metadata(
 
     let mut pos = 0usize;
 
-    // PackedMeta layout:
     let ci = read_u32_vec(bytes, &mut pos, item_count_usize + 1)?;
     let moi = read_u32_vec(bytes, &mut pos, meta_count_usize)?;
     let mpi = read_u32_vec(bytes, &mut pos, meta_count_usize)?;
@@ -65,7 +64,6 @@ pub fn parse_metadata(
         let _ = expected_uncompressed_bytes;
     }
 
-    // CI checks
     if ci.is_empty() || ci[0] != 0 {
         return Err("CI[0] must be 0".to_string());
     }
@@ -125,7 +123,7 @@ pub fn parse_metadata(
             out.push(Metadatum {
                 item_index: item_index as u32,
                 id: moi[j],
-                parent_index: mpi[j],
+                parent_id: mpi[j],
                 tag_id,
                 accession,
                 unit_accession,

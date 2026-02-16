@@ -3,10 +3,7 @@ use zstd::zstd_safe;
 use crate::{
     BinaryData, BinaryDataArray, BinaryDataArrayList,
     decode::{Metadatum, MetadatumValue},
-    mzml::{
-        attr_meta::CV_REF_ATTR,
-        schema::{SchemaNode, SchemaTree as Schema, TagId},
-    },
+    mzml::schema::{SchemaNode, SchemaTree as Schema, TagId},
 };
 
 pub const ACC_Y_INTENSITY: &str = "MS:1000515";
@@ -165,38 +162,23 @@ pub fn unit_cv_ref(unit_accession: Option<&str>) -> Option<String> {
 }
 
 #[inline]
-fn b000_tail(acc: &str) -> Option<u32> {
-    let (pref, tail) = acc.split_once(':')?;
-    if pref != CV_REF_ATTR {
-        return None;
-    }
-    tail.parse::<u32>().ok()
-}
-
-#[inline]
 pub fn get_attr_u32(rows: &[&Metadatum], accession_tail: u32) -> Option<u32> {
     for m in rows {
-        let acc = m.accession.as_deref()?;
-        if b000_tail(acc) != Some(accession_tail) {
-            continue;
-        }
-
-        return match &m.value {
-            MetadatumValue::Number(n) => {
-                if !n.is_finite() || *n < 0.0 || *n > (u32::MAX as f64) {
-                    None
-                } else {
-                    let r = n.round();
-                    if (*n - r).abs() < 1e-9 {
-                        Some(r as u32)
-                    } else {
-                        None
+        if let Some(acc) = m.accession.as_deref() {
+            if parse_accession_tail(Some(acc)) == accession_tail {
+                return match &m.value {
+                    MetadatumValue::Number(n) => {
+                        if n.is_finite() && *n >= 0.0 && *n <= (u32::MAX as f64) {
+                            Some(*n as u32)
+                        } else {
+                            None
+                        }
                     }
-                }
+                    MetadatumValue::Text(s) => s.parse::<u32>().ok(),
+                    MetadatumValue::Empty => None,
+                };
             }
-            MetadatumValue::Text(s) => s.parse::<u32>().ok(),
-            MetadatumValue::Empty => None,
-        };
+        }
     }
     None
 }
@@ -204,23 +186,15 @@ pub fn get_attr_u32(rows: &[&Metadatum], accession_tail: u32) -> Option<u32> {
 #[inline]
 pub fn get_attr_text(rows: &[&Metadatum], accession_tail: u32) -> Option<String> {
     for m in rows {
-        let acc = m.accession.as_deref()?;
-        if b000_tail(acc) != Some(accession_tail) {
-            continue;
+        if let Some(acc) = m.accession.as_deref() {
+            if parse_accession_tail(Some(acc)) == accession_tail {
+                return match &m.value {
+                    MetadatumValue::Text(s) => Some(s.clone()),
+                    MetadatumValue::Number(n) => Some(n.to_string()),
+                    MetadatumValue::Empty => None,
+                };
+            }
         }
-
-        return match &m.value {
-            MetadatumValue::Text(s) => Some(s.clone()),
-            MetadatumValue::Number(n) => Some({
-                let r = n.round();
-                if (*n - r).abs() < 1e-9 {
-                    format!("{}", r as i64)
-                } else {
-                    format!("{}", n)
-                }
-            }),
-            MetadatumValue::Empty => None,
-        };
     }
     None
 }
@@ -395,4 +369,16 @@ pub fn parse_accession_tail(accession: Option<&str>) -> u32 {
     }
 
     if saw_digit { v } else { 0 }
+}
+
+#[inline]
+pub fn read_u32_le_at(bytes: &[u8], pos: &mut usize, field: &'static str) -> Result<u32, String> {
+    let s = take(bytes, pos, 4, field)?;
+    Ok(u32::from_le_bytes(s.try_into().unwrap()))
+}
+
+#[inline]
+pub fn read_u64_le_at(bytes: &[u8], pos: &mut usize, field: &'static str) -> Result<u64, String> {
+    let s = take(bytes, pos, 8, field)?;
+    Ok(u64::from_le_bytes(s.try_into().unwrap()))
 }

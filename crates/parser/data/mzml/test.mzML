@@ -103,7 +103,7 @@
             </binaryDataArray>
           </binaryDataArrayList>
         </spectrum>
-        <spectrum index="3475" id="scan=3476" defaultArrayLength="4340">
+        <spectrum index="1" id="scan=3476" defaultArrayLength="4340">
           <cvParam cvRef="MS" accession="MS:1000511" name="ms level" value="2"/>
           <cvParam cvRef="MS" accession="MS:1000580" name="MSn spectrum" value=""/>
           <cvParam cvRef="MS" accession="MS:1000130" name="positive scan" value=""/>

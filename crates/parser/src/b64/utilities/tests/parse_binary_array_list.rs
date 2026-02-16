@@ -6,8 +6,13 @@ use std::{
 
 use crate::{
     CvParam,
-    b64::decode::Metadatum,
-    b64::utilities::{parse_binary_data_array_list, parse_header, parse_metadata},
+    b64::{
+        decode::Metadatum,
+        utilities::{
+            children_lookup::{ChildrenLookup, OwnerRows},
+            parse_binary_data_array_list, parse_header, parse_metadata,
+        },
+    },
     mzml::schema::TagId,
 };
 
@@ -86,7 +91,7 @@ fn first_chrom_cv_params_item_by_item() {
     let bytes = read_bytes(PATH);
     let header = parse_header(&bytes).expect("parse_header failed");
 
-    let meta = parse_metadata_section_from_test_file(
+    let metadata_section = parse_metadata_section_from_test_file(
         header.off_chrom_meta,
         header.off_global_meta,
         header.chrom_count,
@@ -99,32 +104,45 @@ fn first_chrom_cv_params_item_by_item() {
         "chromatograms",
     );
 
-    let mut by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
-    for m in &meta {
-        if m.tag_id == TagId::BinaryDataArray {
-            by_parent.entry(m.parent_index).or_default().insert(m.id);
+    let mut rows_by_id = OwnerRows::with_capacity(metadata_section.len());
+    for metadatum in &metadata_section {
+        rows_by_id.insert(metadatum.id, metadatum);
+    }
+
+    let mut binary_data_arrays_by_parent: std::collections::HashMap<
+        u32,
+        std::collections::HashSet<u32>,
+    > = std::collections::HashMap::new();
+
+    for metadatum in &metadata_section {
+        if metadatum.tag_id == TagId::BinaryDataArray {
+            binary_data_arrays_by_parent
+                .entry(metadatum.parent_id)
+                .or_default()
+                .insert(metadatum.id);
         }
     }
 
-    let mut parent_ids: Vec<u32> = by_parent
+    let mut parent_ids: Vec<u32> = binary_data_arrays_by_parent
         .iter()
-        .filter(|(_, owners)| owners.len() == 3)
-        .map(|(pid, _)| *pid)
+        .filter(|(_, array_ids)| array_ids.len() == 3)
+        .map(|(parent_id, _)| *parent_id)
         .collect();
+
     parent_ids.sort_unstable();
-    let pid = parent_ids[0];
+    let target_parent_id = parent_ids[0];
 
-    let scoped: Vec<&Metadatum> = meta
-        .iter()
-        .filter(|m| m.tag_id == TagId::BinaryDataArray && m.parent_index == pid)
-        .collect();
+    let metadata_references: Vec<&Metadatum> = metadata_section.iter().collect();
+    let children_lookup = ChildrenLookup::new(&metadata_references);
 
-    let bdal = parse_binary_data_array_list(&scoped).unwrap();
+    let binary_data_array_list =
+        parse_binary_data_array_list(&rows_by_id, &children_lookup, target_parent_id)
+            .expect("parse_binary_data_array_list returned None");
 
-    assert_eq!(bdal.count, Some(3));
-    assert_eq!(bdal.binary_data_arrays.len(), 3);
+    assert_eq!(binary_data_array_list.count, Some(3));
+    assert_eq!(binary_data_array_list.binary_data_arrays.len(), 3);
 
-    for bda in &bdal.binary_data_arrays {
+    for bda in &binary_data_array_list.binary_data_arrays {
         let accs: HashSet<&str> = bda
             .cv_params
             .iter()
@@ -299,7 +317,7 @@ fn second_chrom_cv_params_item_by_item() {
     let bytes = read_bytes(PATH);
     let header = parse_header(&bytes).expect("parse_header failed");
 
-    let meta = parse_metadata_section_from_test_file(
+    let metadata_section = parse_metadata_section_from_test_file(
         header.off_chrom_meta,
         header.off_global_meta,
         header.chrom_count,
@@ -312,31 +330,40 @@ fn second_chrom_cv_params_item_by_item() {
         "chromatograms",
     );
 
-    let mut by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
-    for m in &meta {
-        if m.tag_id == TagId::BinaryDataArray {
-            by_parent.entry(m.parent_index).or_default().insert(m.id);
+    let mut rows_by_id = OwnerRows::with_capacity(metadata_section.len());
+    for metadatum in &metadata_section {
+        rows_by_id.insert(metadatum.id, metadatum);
+    }
+
+    let mut binary_data_arrays_by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
+
+    for metadatum in &metadata_section {
+        if metadatum.tag_id == TagId::BinaryDataArray {
+            binary_data_arrays_by_parent
+                .entry(metadatum.parent_id)
+                .or_default()
+                .insert(metadatum.id);
         }
     }
 
-    let mut parent_ids: Vec<u32> = by_parent
+    let mut parent_ids: Vec<u32> = binary_data_arrays_by_parent
         .iter()
-        .filter(|(_, owners)| owners.len() == 3)
-        .map(|(pid, _)| *pid)
+        .filter(|(_, array_ids)| array_ids.len() == 3)
+        .map(|(parent_id, _)| *parent_id)
         .collect();
+
     parent_ids.sort_unstable();
-    let pid = parent_ids[parent_ids.len() - 1];
+    let target_parent_id = parent_ids[parent_ids.len() - 1];
 
-    let scoped: Vec<&Metadatum> = meta
-        .iter()
-        .filter(|m| m.tag_id == TagId::BinaryDataArray && m.parent_index == pid)
-        .collect();
+    let metadata_references: Vec<&Metadatum> = metadata_section.iter().collect();
+    let children_lookup = ChildrenLookup::new(&metadata_references);
 
-    let bdal = parse_binary_data_array_list(&scoped).unwrap();
-    assert_eq!(bdal.count, Some(3));
-    assert_eq!(bdal.binary_data_arrays.len(), 3);
+    let binary_data_array_list =
+        parse_binary_data_array_list(&rows_by_id, &children_lookup, target_parent_id).unwrap();
+    assert_eq!(binary_data_array_list.count, Some(3));
+    assert_eq!(binary_data_array_list.binary_data_arrays.len(), 3);
 
-    for bda in &bdal.binary_data_arrays {
+    for bda in &binary_data_array_list.binary_data_arrays {
         let accs: HashSet<&str> = bda
             .cv_params
             .iter()
@@ -511,7 +538,7 @@ fn first_spectrum_cv_params_item_by_item() {
     let bytes = read_bytes(PATH);
     let header = parse_header(&bytes).expect("parse_header failed");
 
-    let meta = parse_metadata_section_from_test_file(
+    let metadata_section = parse_metadata_section_from_test_file(
         header.off_spec_meta,
         header.off_chrom_meta,
         header.spectrum_count,
@@ -524,31 +551,41 @@ fn first_spectrum_cv_params_item_by_item() {
         "spectra",
     );
 
-    let mut by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
-    for m in &meta {
-        if m.tag_id == TagId::BinaryDataArray {
-            by_parent.entry(m.parent_index).or_default().insert(m.id);
+    let mut rows_by_id = OwnerRows::with_capacity(metadata_section.len());
+    for metadatum in &metadata_section {
+        rows_by_id.insert(metadatum.id, metadatum);
+    }
+
+    let mut binary_data_arrays_by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
+
+    for metadatum in &metadata_section {
+        if metadatum.tag_id == TagId::BinaryDataArray {
+            binary_data_arrays_by_parent
+                .entry(metadatum.parent_id)
+                .or_default()
+                .insert(metadatum.id);
         }
     }
 
-    let mut parent_ids: Vec<u32> = by_parent
+    let mut parent_ids: Vec<u32> = binary_data_arrays_by_parent
         .iter()
-        .filter(|(_, owners)| owners.len() == 2)
-        .map(|(pid, _)| *pid)
+        .filter(|(_, array_ids)| array_ids.len() == 2)
+        .map(|(parent_id, _)| *parent_id)
         .collect();
+
     parent_ids.sort_unstable();
-    let pid = parent_ids[0];
+    let target_parent_id = parent_ids[0];
 
-    let scoped: Vec<&Metadatum> = meta
-        .iter()
-        .filter(|m| m.tag_id == TagId::BinaryDataArray && m.parent_index == pid)
-        .collect();
+    let metadata_references: Vec<&Metadatum> = metadata_section.iter().collect();
+    let children_lookup = ChildrenLookup::new(&metadata_references);
 
-    let bdal = parse_binary_data_array_list(&scoped).unwrap();
-    assert_eq!(bdal.count, Some(2));
-    assert_eq!(bdal.binary_data_arrays.len(), 2);
+    let binary_data_array_list =
+        parse_binary_data_array_list(&rows_by_id, &children_lookup, target_parent_id).unwrap();
 
-    for bda in &bdal.binary_data_arrays {
+    assert_eq!(binary_data_array_list.count, Some(2));
+    assert_eq!(binary_data_array_list.binary_data_arrays.len(), 2);
+
+    for bda in &binary_data_array_list.binary_data_arrays {
         let accs: HashSet<&str> = bda
             .cv_params
             .iter()
@@ -670,7 +707,7 @@ fn second_spectrum_cv_params_item_by_item() {
     let bytes = read_bytes(PATH);
     let header = parse_header(&bytes).expect("parse_header failed");
 
-    let meta = parse_metadata_section_from_test_file(
+    let metadata_section = parse_metadata_section_from_test_file(
         header.off_spec_meta,
         header.off_chrom_meta,
         header.spectrum_count,
@@ -683,31 +720,41 @@ fn second_spectrum_cv_params_item_by_item() {
         "spectra",
     );
 
-    let mut by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
-    for m in &meta {
-        if m.tag_id == TagId::BinaryDataArray {
-            by_parent.entry(m.parent_index).or_default().insert(m.id);
+    let mut rows_by_id = OwnerRows::with_capacity(metadata_section.len());
+    for metadatum in &metadata_section {
+        rows_by_id.insert(metadatum.id, metadatum);
+    }
+
+    let mut binary_data_arrays_by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
+
+    for metadatum in &metadata_section {
+        if metadatum.tag_id == TagId::BinaryDataArray {
+            binary_data_arrays_by_parent
+                .entry(metadatum.parent_id)
+                .or_default()
+                .insert(metadatum.id);
         }
     }
 
-    let mut parent_ids: Vec<u32> = by_parent
+    let mut parent_ids: Vec<u32> = binary_data_arrays_by_parent
         .iter()
-        .filter(|(_, owners)| owners.len() == 2)
-        .map(|(pid, _)| *pid)
+        .filter(|(_, array_ids)| array_ids.len() == 2)
+        .map(|(parent_id, _)| *parent_id)
         .collect();
+
     parent_ids.sort_unstable();
-    let pid = parent_ids[parent_ids.len() - 1];
+    let target_parent_id = parent_ids[parent_ids.len() - 1];
 
-    let scoped: Vec<&Metadatum> = meta
-        .iter()
-        .filter(|m| m.tag_id == TagId::BinaryDataArray && m.parent_index == pid)
-        .collect();
+    let metadata_references: Vec<&Metadatum> = metadata_section.iter().collect();
+    let children_lookup = ChildrenLookup::new(&metadata_references);
 
-    let bdal = parse_binary_data_array_list(&scoped).unwrap();
-    assert_eq!(bdal.count, Some(2));
-    assert_eq!(bdal.binary_data_arrays.len(), 2);
+    let binary_data_array_list =
+        parse_binary_data_array_list(&rows_by_id, &children_lookup, target_parent_id).unwrap();
 
-    for bda in &bdal.binary_data_arrays {
+    assert_eq!(binary_data_array_list.count, Some(2));
+    assert_eq!(binary_data_array_list.binary_data_arrays.len(), 2);
+
+    for bda in &binary_data_array_list.binary_data_arrays {
         let accs: HashSet<&str> = bda
             .cv_params
             .iter()

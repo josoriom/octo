@@ -1,17 +1,14 @@
 use crate::{
     b64::utilities::{
         children_lookup::{ChildrenLookup, OwnerRows},
-        common::b000_attr_text,
+        common::{get_attr_text, get_attr_u32},
         parse_cv_and_user_params,
     },
     decode::Metadatum,
     mzml::{
         attr_meta::{ACC_ATTR_COUNT, ACC_ATTR_ID, ACC_ATTR_LOCATION, ACC_ATTR_NAME},
         schema::TagId,
-        structs::{
-            Contact, FileContent, FileDescription, ReferenceableParamGroupRef, SourceFile,
-            SourceFileList,
-        },
+        structs::{Contact, FileContent, FileDescription, SourceFile, SourceFileList},
     },
 };
 
@@ -20,223 +17,103 @@ pub fn parse_file_description(
     metadata: &[&Metadatum],
     children_lookup: &ChildrenLookup,
 ) -> Option<FileDescription> {
-    let mut owner_rows: OwnerRows<'_> = OwnerRows::with_capacity(metadata.len());
-
-    let mut file_desc_id: Option<u32> = None;
-    let mut fallback_from_file_content: Option<u32> = None;
-    let mut fallback_from_source_file_list: Option<u32> = None;
-    let mut fallback_from_contact: Option<u32> = None;
-    let mut fallback_sfl_from_source_file: Option<u32> = None;
-
+    let mut owner_rows = OwnerRows::with_capacity(metadata.len());
     for &m in metadata {
-        owner_rows.entry(m.id).or_default().push(m);
-
-        match m.tag_id {
-            TagId::FileDescription => {
-                file_desc_id.get_or_insert(m.id);
-            }
-            TagId::FileContent => {
-                if fallback_from_file_content.is_none() && m.parent_index != 0 {
-                    fallback_from_file_content = Some(m.parent_index);
-                }
-            }
-            TagId::SourceFileList => {
-                if fallback_from_source_file_list.is_none() && m.parent_index != 0 {
-                    fallback_from_source_file_list = Some(m.parent_index);
-                }
-            }
-            TagId::Contact => {
-                if fallback_from_contact.is_none() && m.parent_index != 0 {
-                    fallback_from_contact = Some(m.parent_index);
-                }
-            }
-            TagId::SourceFile => {
-                if fallback_sfl_from_source_file.is_none() && m.parent_index != 0 {
-                    fallback_sfl_from_source_file = Some(m.parent_index);
-                }
-            }
-            _ => {}
-        }
+        owner_rows.insert(m.id, m);
     }
 
-    let file_desc_id = file_desc_id
-        .or(fallback_from_file_content)
-        .or(fallback_from_source_file_list)
-        .or(fallback_from_contact)
+    let root_id = children_lookup
+        .all_ids(TagId::FileDescription)
+        .first()
+        .copied()
         .or_else(|| {
-            let sfl_id = fallback_sfl_from_source_file?;
-            owner_rows
-                .get(&sfl_id)
-                .and_then(|rows| rows.first())
-                .map(|m| m.parent_index)
-        })?;
-
-    let file_content = parse_file_content(metadata, children_lookup, &owner_rows, file_desc_id);
-    let source_file_list =
-        parse_source_file_list(metadata, children_lookup, &owner_rows, file_desc_id);
-    let contacts = parse_contacts(metadata, children_lookup, &owner_rows, file_desc_id);
+            children_lookup
+                .all_ids(TagId::SourceFileList)
+                .first()
+                .and_then(|&id| owner_rows.get(id).first().map(|m| m.parent_id))
+        })
+        .unwrap_or(0);
 
     Some(FileDescription {
-        file_content,
-        source_file_list,
-        contacts,
+        file_content: parse_file_content(&owner_rows, children_lookup, root_id),
+        source_file_list: parse_source_file_list(&owner_rows, children_lookup, root_id),
+        contacts: parse_contacts(&owner_rows, children_lookup, root_id),
     })
 }
 
 #[inline]
-fn parse_file_content<'m>(
-    metadata: &[&'m Metadatum],
+fn parse_file_content(
+    owner_rows: &OwnerRows,
     children_lookup: &ChildrenLookup,
-    owner_rows: &OwnerRows<'m>,
-    file_desc_id: u32,
+    root_id: u32,
 ) -> FileContent {
-    let file_content_id = children_lookup
-        .ids_for(metadata, file_desc_id, TagId::FileContent)
-        .first()
-        .copied()
-        .unwrap_or(0);
-
-    if file_content_id == 0 {
-        return FileContent::default();
-    }
-
-    let rows = ChildrenLookup::rows_for_owner(owner_rows, file_content_id);
-    let child_meta = children_lookup.param_rows(metadata, owner_rows, file_content_id);
-
-    let (cv_params, user_params) = if child_meta.is_empty() {
-        parse_cv_and_user_params(rows)
-    } else {
-        let mut params_meta = Vec::with_capacity(rows.len() + child_meta.len());
-        params_meta.extend_from_slice(rows);
-        params_meta.extend(child_meta);
-        parse_cv_and_user_params(&params_meta)
-    };
+    let content_id = children_lookup
+        .first_id(root_id, TagId::FileContent)
+        .unwrap_or(root_id);
+    let (cv_params, user_params) =
+        parse_cv_and_user_params(&children_lookup.get_param_rows(owner_rows, content_id));
 
     FileContent {
-        referenceable_param_group_refs: Vec::<ReferenceableParamGroupRef>::new(),
+        referenceable_param_group_refs: Vec::new(),
         cv_params,
         user_params,
     }
 }
 
 #[inline]
-fn parse_source_file_list<'m>(
-    metadata: &[&'m Metadatum],
+fn parse_source_file_list(
+    owner_rows: &OwnerRows,
     children_lookup: &ChildrenLookup,
-    owner_rows: &OwnerRows<'m>,
-    file_desc_id: u32,
+    root_id: u32,
 ) -> SourceFileList {
-    let sfl_id = children_lookup
-        .ids_for(metadata, file_desc_id, TagId::SourceFileList)
-        .first()
-        .copied()
-        .unwrap_or(0);
+    let list_id = children_lookup.first_id(root_id, TagId::SourceFileList);
+    let ids = children_lookup.ids_for(list_id.unwrap_or(0), TagId::SourceFile);
 
-    if sfl_id == 0 {
-        return SourceFileList {
-            count: Some(0),
-            source_file: Vec::new(),
-        };
-    }
+    let count = list_id
+        .and_then(|id| get_attr_u32(owner_rows.get(id), ACC_ATTR_COUNT))
+        .map(|v| v as usize);
 
-    let sfl_rows = ChildrenLookup::rows_for_owner(owner_rows, sfl_id);
-    let count_attr = b000_attr_text(sfl_rows, ACC_ATTR_COUNT).and_then(|s| s.parse::<usize>().ok());
+    let source_file = ids
+        .iter()
+        .map(|&id| {
+            let rows = owner_rows.get(id);
+            let (cv_param, user_param) =
+                parse_cv_and_user_params(&children_lookup.get_param_rows(owner_rows, id));
 
-    let source_file_ids = children_lookup.ids_for(metadata, sfl_id, TagId::SourceFile);
-    if source_file_ids.is_empty() {
-        return SourceFileList {
-            count: count_attr.or(Some(0)),
-            source_file: Vec::new(),
-        };
-    }
-
-    let mut source_file = Vec::with_capacity(source_file_ids.len());
-    for id in source_file_ids {
-        source_file.push(parse_source_file(metadata, children_lookup, owner_rows, id));
-    }
+            SourceFile {
+                id: get_attr_text(rows, ACC_ATTR_ID).unwrap_or_default(),
+                name: get_attr_text(rows, ACC_ATTR_NAME).unwrap_or_default(),
+                location: get_attr_text(rows, ACC_ATTR_LOCATION).unwrap_or_default(),
+                referenceable_param_group_ref: Vec::new(),
+                cv_param,
+                user_param,
+            }
+        })
+        .collect::<Vec<_>>();
 
     SourceFileList {
-        count: count_attr.or(Some(source_file.len())),
+        count: count.or(Some(source_file.len())),
         source_file,
     }
 }
 
 #[inline]
-fn parse_source_file<'m>(
-    metadata: &[&'m Metadatum],
+fn parse_contacts(
+    owner_rows: &OwnerRows,
     children_lookup: &ChildrenLookup,
-    owner_rows: &OwnerRows<'m>,
-    source_file_id: u32,
-) -> SourceFile {
-    let rows = ChildrenLookup::rows_for_owner(owner_rows, source_file_id);
-
-    let id = b000_attr_text(rows, ACC_ATTR_ID).unwrap_or_default();
-    let name = b000_attr_text(rows, ACC_ATTR_NAME).unwrap_or_default();
-    let location = b000_attr_text(rows, ACC_ATTR_LOCATION).unwrap_or_default();
-
-    let child_meta = children_lookup.param_rows(metadata, owner_rows, source_file_id);
-
-    let (cv_param, user_param) = if child_meta.is_empty() {
-        parse_cv_and_user_params(rows)
-    } else {
-        let mut params_meta = Vec::with_capacity(rows.len() + child_meta.len());
-        params_meta.extend_from_slice(rows);
-        params_meta.extend(child_meta);
-        parse_cv_and_user_params(&params_meta)
-    };
-
-    SourceFile {
-        id,
-        name,
-        location,
-        referenceable_param_group_ref: Vec::<ReferenceableParamGroupRef>::new(),
-        cv_param,
-        user_param,
-    }
-}
-
-#[inline]
-fn parse_contacts<'m>(
-    metadata: &[&'m Metadatum],
-    children_lookup: &ChildrenLookup,
-    owner_rows: &OwnerRows<'m>,
-    file_desc_id: u32,
+    root_id: u32,
 ) -> Vec<Contact> {
-    let contact_ids = children_lookup.ids_for(metadata, file_desc_id, TagId::Contact);
-    if contact_ids.is_empty() {
-        return Vec::new();
-    }
-
-    let mut contacts = Vec::with_capacity(contact_ids.len());
-    for id in contact_ids {
-        contacts.push(parse_contact(metadata, children_lookup, owner_rows, id));
-    }
-    contacts
-}
-
-#[inline]
-fn parse_contact<'m>(
-    metadata: &[&'m Metadatum],
-    children_lookup: &ChildrenLookup,
-    owner_rows: &OwnerRows<'m>,
-    contact_id: u32,
-) -> Contact {
-    let rows = ChildrenLookup::rows_for_owner(owner_rows, contact_id);
-
-    let child_meta = children_lookup.param_rows(metadata, owner_rows, contact_id);
-
-    let (cv_params, user_params) = if child_meta.is_empty() {
-        parse_cv_and_user_params(rows)
-    } else {
-        let mut params_meta = Vec::with_capacity(rows.len() + child_meta.len());
-        params_meta.extend_from_slice(rows);
-        params_meta.extend(child_meta);
-        parse_cv_and_user_params(&params_meta)
-    };
-
-    Contact {
-        referenceable_param_group_refs: Vec::<ReferenceableParamGroupRef>::new(),
-        cv_params,
-        user_params,
-    }
+    children_lookup
+        .ids_for(root_id, TagId::Contact)
+        .iter()
+        .map(|&id| {
+            let (cv_params, user_params) =
+                parse_cv_and_user_params(&children_lookup.get_param_rows(owner_rows, id));
+            Contact {
+                referenceable_param_group_refs: Vec::new(),
+                cv_params,
+                user_params,
+            }
+        })
+        .collect()
 }

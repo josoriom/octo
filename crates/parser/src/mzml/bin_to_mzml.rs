@@ -83,16 +83,16 @@ pub fn convert_bin_to_mzml_bytes(mzml: &MzML) -> Result<Vec<u8>, String> {
         .write_event(Event::Start(mzml_tag))
         .map_err(|e| e.to_string())?;
 
-    let mut fallback_cvl = CvList::default();
-    let cvl = if let Some(cvl) = &mzml.cv_list {
-        cvl
-    } else {
-        fallback_cvl = default_cv_list();
-        &fallback_cvl
-    };
+    let mut fallback_cvl: Option<CvList> = None;
+
+    let cvl: &CvList = mzml
+        .cv_list
+        .as_ref()
+        .unwrap_or_else(|| fallback_cvl.get_or_insert_with(default_cv_list));
+
     write_cv_list(&mut writer, cvl)?;
 
-    write_file_description(&mut writer, &mzml.file_description)?;
+    write_file_description(&mut writer, &mzml.file_description.as_ref().unwrap())?;
 
     if let Some(rpgl) = &mzml.referenceable_param_group_list {
         write_referenceable_param_group_list(&mut writer, rpgl)?;
@@ -1686,76 +1686,6 @@ fn write_cv_container(
         .write_event(Event::End(BytesEnd::new(tag_name)))
         .map_err(|e| e.to_string())?;
     Ok(())
-}
-
-#[inline]
-fn write_simple_cv(writer: &mut Writer<Vec<u8>>, name: &str) -> Result<(), String> {
-    let mut tag = BytesStart::new("cvParam");
-
-    match name {
-        "m/z array" => {
-            tag.push_attribute(("cvRef", "MS"));
-            tag.push_attribute(("accession", "MS:1000514"));
-            tag.push_attribute(("name", "m/z array"));
-            tag.push_attribute(("value", ""));
-        }
-        "intensity array" => {
-            tag.push_attribute(("cvRef", "MS"));
-            tag.push_attribute(("accession", "MS:1000515"));
-            tag.push_attribute(("name", "intensity array"));
-            tag.push_attribute(("value", ""));
-        }
-        "time array" => {
-            tag.push_attribute(("cvRef", "MS"));
-            tag.push_attribute(("accession", "MS:1000595"));
-            tag.push_attribute(("name", "time array"));
-            tag.push_attribute(("value", ""));
-        }
-        "32-bit float" => {
-            tag.push_attribute(("cvRef", "MS"));
-            tag.push_attribute(("accession", "MS:1000521"));
-            tag.push_attribute(("name", "32-bit float"));
-            tag.push_attribute(("value", ""));
-        }
-        "64-bit float" => {
-            tag.push_attribute(("cvRef", "MS"));
-            tag.push_attribute(("accession", "MS:1000523"));
-            tag.push_attribute(("name", "64-bit float"));
-            tag.push_attribute(("value", ""));
-        }
-        "64-bit integer" => {
-            tag.push_attribute(("cvRef", "MS"));
-            tag.push_attribute(("accession", "MS:1000522"));
-            tag.push_attribute(("name", "64-bit integer"));
-            tag.push_attribute(("value", ""));
-        }
-        "32-bit integer" => {
-            tag.push_attribute(("cvRef", "MS"));
-            tag.push_attribute(("accession", "MS:1000519"));
-            tag.push_attribute(("name", "32-bit integer"));
-            tag.push_attribute(("value", ""));
-        }
-        "no compression" => {
-            tag.push_attribute(("cvRef", "MS"));
-            tag.push_attribute(("accession", "MS:1000576"));
-            tag.push_attribute(("name", "no compression"));
-            tag.push_attribute(("value", ""));
-        }
-        "zlib compression" => {
-            tag.push_attribute(("cvRef", "MS"));
-            tag.push_attribute(("accession", "MS:1000574"));
-            tag.push_attribute(("name", "zlib compression"));
-            tag.push_attribute(("value", ""));
-        }
-        _ => {
-            tag.push_attribute(("name", name));
-            tag.push_attribute(("value", ""));
-        }
-    }
-
-    writer
-        .write_event(Event::Empty(tag))
-        .map_err(|e| e.to_string())
 }
 
 fn write_index_list_with_offset(

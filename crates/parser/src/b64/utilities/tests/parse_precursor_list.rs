@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf};
 
-use crate::b64::utilities::children_lookup::ChildrenLookup;
+use crate::b64::utilities::children_lookup::{ChildrenLookup, OwnerRows};
 use crate::mzml::schema::TagId;
 use crate::{
     CvParam,
@@ -87,7 +87,7 @@ fn first_spectrum_precursor_list_must_be_none() {
     let bytes = read_bytes(PATH);
     let header = parse_header(&bytes).expect("parse_header failed");
 
-    let meta = parse_metadata_section_from_test_file(
+    let metadata_section = parse_metadata_section_from_test_file(
         header.off_spec_meta,
         header.off_chrom_meta,
         header.spectrum_count,
@@ -100,20 +100,21 @@ fn first_spectrum_precursor_list_must_be_none() {
         "spectra",
     );
 
-    let scan_item_index = meta
+    let mut rows_by_id = OwnerRows::with_capacity(metadata_section.len());
+    for metadatum in &metadata_section {
+        rows_by_id.insert(metadatum.id, metadatum);
+    }
+
+    let spectrum_id = metadata_section
         .iter()
-        .find(|m| m.tag_id == TagId::Scan)
-        .map(|m| m.item_index)
-        .expect("no Scan entries found in spectra metadata");
+        .find(|metadatum| metadatum.tag_id == TagId::Spectrum)
+        .map(|metadatum| metadatum.id)
+        .expect("no Spectrum entries found");
 
-    let scoped: Vec<&Metadatum> = meta
-        .iter()
-        .filter(|m| m.item_index == scan_item_index)
-        .collect();
+    let metadata_references: Vec<&Metadatum> = metadata_section.iter().collect();
+    let children_lookup = ChildrenLookup::new(&metadata_references);
 
-    let children_lookup = ChildrenLookup::new(&meta);
-
-    let precursor_list = parse_precursor_list(&scoped, &children_lookup);
+    let precursor_list = parse_precursor_list(&rows_by_id, &children_lookup, spectrum_id);
 
     assert!(
         precursor_list.is_none(),
@@ -126,7 +127,7 @@ fn second_spectrum_precursor_list_cv_params_item_by_item() {
     let bytes = read_bytes(PATH);
     let header = parse_header(&bytes).expect("parse_header failed");
 
-    let meta = parse_metadata_section_from_test_file(
+    let metadata_section = parse_metadata_section_from_test_file(
         header.off_spec_meta,
         header.off_chrom_meta,
         header.spectrum_count,
@@ -139,28 +140,31 @@ fn second_spectrum_precursor_list_cv_params_item_by_item() {
         "spectra",
     );
 
-    let mut scan_item_indices: Vec<_> = meta
+    let mut rows_by_id = OwnerRows::with_capacity(metadata_section.len());
+    for metadatum in &metadata_section {
+        rows_by_id.insert(metadatum.id, metadatum);
+    }
+
+    let mut spectrum_ids: Vec<u32> = metadata_section
         .iter()
-        .filter(|m| m.tag_id == TagId::Scan)
-        .map(|m| m.item_index)
+        .filter(|metadatum| metadatum.tag_id == TagId::Spectrum)
+        .map(|metadatum| metadatum.id)
         .collect();
 
-    scan_item_indices.sort_unstable();
-    scan_item_indices.dedup();
+    spectrum_ids.sort_unstable();
+    spectrum_ids.dedup();
 
-    let scan_item_index = scan_item_indices
+    let target_spectrum_id = spectrum_ids
         .get(1)
         .copied()
-        .expect("no second Scan item_index found in spectra metadata");
+        .expect("no second Spectrum ID found");
 
-    let scoped: Vec<&Metadatum> = meta
-        .iter()
-        .filter(|m| m.item_index == scan_item_index)
-        .collect();
+    let metadata_references: Vec<&Metadatum> = metadata_section.iter().collect();
+    let children_lookup = ChildrenLookup::new(&metadata_references);
 
-    let children_lookup = ChildrenLookup::new(&meta);
-    let precursor_list = parse_precursor_list(&scoped, &children_lookup)
-        .expect("parse_precursor_list returned None for second spectrum");
+    let precursor_list = parse_precursor_list(&rows_by_id, &children_lookup, target_spectrum_id)
+        .expect("parse_precursor_list returned None");
+
     assert_eq!(precursor_list.count, Some(1));
     assert_eq!(precursor_list.precursors.len(), 1);
 

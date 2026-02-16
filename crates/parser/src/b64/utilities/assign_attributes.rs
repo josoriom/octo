@@ -19,12 +19,7 @@ struct FieldSpec {
     id_variant: Option<String>,
     uri_variant: Option<String>,
 }
-pub fn assign_attributes<T>(
-    expected: &T,
-    tag_id: TagId,
-    id: u32,
-    parent_index: u32,
-) -> Vec<Metadatum>
+pub fn assign_attributes<T>(expected: &T, tag_id: TagId, id: u32, parent_id: u32) -> Vec<Metadatum>
 where
     T: Serialize,
 {
@@ -267,7 +262,7 @@ where
         out.push(Metadatum {
             item_index,
             id,
-            parent_index,
+            parent_id,
             tag_id,
             accession: Some(accession),
             unit_accession: None,

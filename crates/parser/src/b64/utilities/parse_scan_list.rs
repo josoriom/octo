@@ -1,69 +1,62 @@
-use std::collections::HashSet;
-
 use crate::{
     ScanList, ScanWindow, ScanWindowList,
     b64::utilities::{
         children_lookup::{ChildrenLookup, OwnerRows},
+        common::{get_attr_text, get_attr_u32},
         parse_cv_and_user_params,
     },
-    decode::Metadatum,
-    mzml::{schema::TagId, structs::Scan},
+    mzml::{
+        attr_meta::{
+            ACC_ATTR_COUNT, ACC_ATTR_EXTERNAL_SPECTRUM_ID, ACC_ATTR_INSTRUMENT_CONFIGURATION_REF,
+            ACC_ATTR_SOURCE_FILE_REF, ACC_ATTR_SPECTRUM_REF,
+        },
+        schema::TagId,
+        structs::Scan,
+    },
 };
 
-/// <scanList>
 #[inline]
 pub fn parse_scan_list(
-    metadata: &[&Metadatum],
+    owner_rows: &OwnerRows,
     children_lookup: &ChildrenLookup,
+    spectrum_id: u32,
 ) -> Option<ScanList> {
-    let mut owner_rows: OwnerRows<'_> = OwnerRows::with_capacity(metadata.len());
-    let mut scan_list_id: Option<u32> = None;
+    let desc_id = children_lookup.first_id(spectrum_id, TagId::SpectrumDescription);
+    let list_id = children_lookup
+        .first_id(spectrum_id, TagId::ScanList)
+        .or_else(|| desc_id.and_then(|id| children_lookup.first_id(id, TagId::ScanList)));
 
-    for &m in metadata {
-        owner_rows.entry(m.id).or_default().push(m);
-        if scan_list_id.is_none() && m.tag_id == TagId::ScanList {
-            scan_list_id = Some(m.id);
-        }
-    }
-
-    let scan_list_id = scan_list_id?;
-
-    let scan_list_rows = ChildrenLookup::rows_for_owner(&owner_rows, scan_list_id);
-
-    let mut scan_list_params_meta: Vec<&Metadatum> = Vec::with_capacity(scan_list_rows.len() + 8);
-    scan_list_params_meta.extend_from_slice(scan_list_rows);
-    scan_list_params_meta.extend(children_lookup.param_rows(metadata, &owner_rows, scan_list_id));
-
-    let (cv_params, user_params) = parse_cv_and_user_params(&scan_list_params_meta);
-
-    let mut scan_ids = children_lookup.ids_for(metadata, scan_list_id, TagId::Scan);
-    if scan_ids.is_empty() {
-        scan_ids = ChildrenLookup::all_ids(metadata, TagId::Scan);
-    }
+    let scan_ids = children_lookup.ids_for(list_id.or(desc_id).unwrap_or(spectrum_id), TagId::Scan);
     if scan_ids.is_empty() {
         return None;
     }
 
-    let single_scan_id = (scan_ids.len() == 1).then_some(scan_ids[0]);
-    let all_scan_window_ids = ChildrenLookup::all_ids(metadata, TagId::ScanWindow);
+    let scans = scan_ids
+        .iter()
+        .map(|&id| {
+            let rows = owner_rows.get(id);
+            let param_rows = &children_lookup.get_param_rows(owner_rows, id);
+            let (cv_params, user_params) = parse_cv_and_user_params(&param_rows);
 
-    let mut scans = Vec::with_capacity(scan_ids.len());
-    for scan_id in scan_ids {
-        let scan_rows = ChildrenLookup::rows_for_owner(&owner_rows, scan_id);
-        let scan_parent = scan_rows.first().map(|m| m.parent_index).unwrap_or(0);
+            Scan {
+                instrument_configuration_ref: get_attr_text(
+                    rows,
+                    ACC_ATTR_INSTRUMENT_CONFIGURATION_REF,
+                ),
+                spectrum_ref: get_attr_text(rows, ACC_ATTR_SPECTRUM_REF),
+                source_file_ref: get_attr_text(rows, ACC_ATTR_SOURCE_FILE_REF),
+                external_spectrum_id: get_attr_text(rows, ACC_ATTR_EXTERNAL_SPECTRUM_ID),
+                scan_window_list: parse_scan_window_list(owner_rows, children_lookup, id),
+                cv_params,
+                user_params,
+                referenceable_param_group_refs: Vec::new(),
+            }
+        })
+        .collect::<Vec<_>>();
 
-        let scan_window_ids = scan_window_ids_for_scan(
-            children_lookup,
-            metadata,
-            scan_id,
-            scan_parent,
-            single_scan_id,
-            &all_scan_window_ids,
-        );
-
-        let scan_window_list = parse_scan_window_list(&owner_rows, &scan_window_ids);
-        scans.push(parse_scan(scan_rows, scan_window_list));
-    }
+    let (cv_params, user_params) = list_id
+        .map(|id| parse_cv_and_user_params(&children_lookup.get_param_rows(owner_rows, id)))
+        .unwrap_or_default();
 
     Some(ScanList {
         count: Some(scans.len()),
@@ -73,89 +66,38 @@ pub fn parse_scan_list(
     })
 }
 
-/// <scan>
-#[inline]
-fn parse_scan(scan_rows: &[&Metadatum], scan_window_list: Option<ScanWindowList>) -> Scan {
-    let (cv_params, user_params) = parse_cv_and_user_params(scan_rows);
-
-    Scan {
-        instrument_configuration_ref: None,
-        external_spectrum_id: None,
-        source_file_ref: None,
-        spectrum_ref: None,
-        referenceable_param_group_refs: Vec::new(),
-        cv_params,
-        user_params,
-        scan_window_list,
-    }
-}
-
-/// <scanWindowList>
 #[inline]
 fn parse_scan_window_list(
     owner_rows: &OwnerRows,
-    scan_window_ids: &[u32],
+    children_lookup: &ChildrenLookup,
+    scan_id: u32,
 ) -> Option<ScanWindowList> {
-    if scan_window_ids.is_empty() {
+    let list_id = children_lookup.first_id(scan_id, TagId::ScanWindowList);
+    let window_ids = children_lookup.ids_for(list_id.unwrap_or(scan_id), TagId::ScanWindow);
+
+    if window_ids.is_empty() {
         return None;
     }
 
-    let mut scan_windows = Vec::with_capacity(scan_window_ids.len());
-    for &sw_id in scan_window_ids {
-        let sw_rows = ChildrenLookup::rows_for_owner(owner_rows, sw_id);
-        scan_windows.push(parse_scan_window(sw_rows));
-    }
+    let scan_windows = window_ids
+        .iter()
+        .map(|&id| {
+            let (cv_params, user_params) =
+                parse_cv_and_user_params(&children_lookup.get_param_rows(owner_rows, id));
+            ScanWindow {
+                cv_params,
+                user_params,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let count = list_id
+        .and_then(|id| get_attr_u32(owner_rows.get(id), ACC_ATTR_COUNT))
+        .map(|v| v as usize)
+        .or(Some(scan_windows.len()));
 
     Some(ScanWindowList {
-        count: Some(scan_windows.len()),
+        count,
         scan_windows,
     })
-}
-
-/// <scanWindow>
-#[inline]
-fn parse_scan_window(scan_window_rows: &[&Metadatum]) -> ScanWindow {
-    let (cv_params, user_params) = parse_cv_and_user_params(scan_window_rows);
-
-    ScanWindow {
-        cv_params,
-        user_params,
-        ..Default::default()
-    }
-}
-
-#[inline]
-fn scan_window_ids_for_scan(
-    children_lookup: &ChildrenLookup,
-    metadata: &[&Metadatum],
-    scan_id: u32,
-    scan_parent: u32,
-    single_scan_id: Option<u32>,
-    all_scan_window_ids: &[u32],
-) -> Vec<u32> {
-    let mut out: Vec<u32> = Vec::new();
-
-    out.extend(children_lookup.ids_for(metadata, scan_id, TagId::ScanWindow));
-    if out.is_empty() && scan_parent != 0 {
-        out.extend(children_lookup.ids_for(metadata, scan_parent, TagId::ScanWindow));
-    }
-
-    if out.is_empty() {
-        for parent in [scan_id, scan_parent] {
-            if parent == 0 {
-                continue;
-            }
-            for swl_id in children_lookup.ids_for(metadata, parent, TagId::ScanWindowList) {
-                out.extend(children_lookup.ids_for(metadata, swl_id, TagId::ScanWindow));
-            }
-        }
-    }
-
-    if out.is_empty() && single_scan_id == Some(scan_id) {
-        out.extend_from_slice(all_scan_window_ids);
-    }
-
-    let mut seen = HashSet::with_capacity(out.len());
-    out.retain(|id| seen.insert(*id));
-    out
 }

@@ -21,15 +21,15 @@ fn check_header() {
     assert_eq!(header.spectrum_count, 2);
     assert_eq!(header.chrom_count, 2);
 
-    assert_eq!(header.spec_meta_count, 54);
-    assert_eq!(header.spec_meta_num_count, 32);
+    assert_eq!(header.spec_meta_count, 69);
+    assert_eq!(header.spec_meta_num_count, 34);
     assert_eq!(header.spec_meta_str_count, 3);
 
-    assert_eq!(header.chrom_meta_count, 38);
+    assert_eq!(header.chrom_meta_count, 45);
     assert_eq!(header.chrom_meta_num_count, 15);
     assert_eq!(header.chrom_meta_str_count, 5);
 
-    assert_eq!(header.global_meta_count, 49);
+    assert_eq!(header.global_meta_count, 69);
     assert_eq!(header.global_meta_num_count, 8);
     assert_eq!(header.global_meta_str_count, 25);
 

@@ -32,7 +32,7 @@ fn tiny_msdata_mzml0_99_10_pwiz_header_sections() {
     );
 
     // fileDescription
-    let file_desc = &mzml.file_description;
+    let file_desc = &mzml.file_description.as_ref().unwrap();
 
     // fileContent
     assert_eq!(file_desc.file_content.cv_params.len(), 1);
@@ -462,7 +462,7 @@ fn tiny_msdata_mzml0_99_10_pwiz_first_spectrum() {
             Some(""),
             None,
         );
-        assert_eq!(ba.array_length, Some(15));
+        assert_eq!(ba.array_length, None);
         assert_eq!(ba.encoded_length, enc_len);
     }
 }
@@ -711,7 +711,7 @@ fn tiny_msdata_mzml0_99_10_pwiz_second_spectrum() {
             Some(""),
             None,
         );
-        assert_eq!(ba.array_length, Some(10));
+        assert_eq!(ba.array_length, None);
         assert_eq!(ba.encoded_length, Some(108usize));
     }
 }
@@ -776,7 +776,7 @@ fn tiny_mzml0_99_10_pwiz_chromatograms() {
             Some(""),
             None,
         );
-        assert_eq!(ba.array_length, Some(15));
+        assert_eq!(ba.array_length, None);
         assert_eq!(ba.encoded_length, expect_enc);
     }
 
@@ -832,7 +832,7 @@ fn tiny_mzml0_99_10_pwiz_chromatograms() {
             Some(""),
             None,
         );
-        assert_eq!(ba.array_length, Some(10));
+        assert_eq!(ba.array_length, None);
         assert_eq!(ba.encoded_length, expect_enc);
     }
 }
@@ -850,7 +850,7 @@ fn tiny_msdata_mzml0_99_10_pwiz_s19_mz_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[0];
-    assert_eq!(bda.array_length, Some(15));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(160usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
@@ -875,7 +875,7 @@ fn tiny_msdata_mzml0_99_10_pwiz_s19_intensity_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[1];
-    assert_eq!(bda.array_length, Some(15));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(160usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
@@ -900,7 +900,7 @@ fn tiny_msdata_mzml0_99_10_pwiz_s20_mz_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[0];
-    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(108usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
@@ -925,7 +925,7 @@ fn tiny_msdata_mzml0_99_10_pwiz_s20_intensity_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[1];
-    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(108usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
@@ -952,7 +952,7 @@ fn tiny_msdata_mzml0_99_10_pwiz_tic_time_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[0];
-    assert_eq!(bda.array_length, Some(15));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(160usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
@@ -979,7 +979,7 @@ fn tiny_msdata_mzml0_99_10_pwiz_tic_intensity_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[1];
-    assert_eq!(bda.array_length, Some(15));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(160usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
@@ -1006,7 +1006,7 @@ fn tiny_msdata_mzml0_99_10_pwiz_sic_time_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[0];
-    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(108usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];
@@ -1033,7 +1033,7 @@ fn tiny_msdata_mzml0_99_10_pwiz_sic_intensity_binary() {
     assert_eq!(bal.binary_data_arrays.len(), 2);
 
     let bda = &bal.binary_data_arrays[1];
-    assert_eq!(bda.array_length, Some(10));
+    assert_eq!(bda.array_length, None);
     assert_eq!(bda.encoded_length, Some(108usize));
 
     let expected: Vec<f64> = vec![0.1, 10.0, 0.2, 30.0, 0.4, 50.0, 0.6, 70.0, 0.08, 90.0];

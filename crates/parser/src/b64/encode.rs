@@ -1,40 +1,40 @@
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
-    mem, slice,
+    slice,
 };
 use zstd::bulk::compress as zstd_compress;
 
 use crate::{
     BinaryData, NumericType,
-    b64::utilities::{assign_attributes, container::ContainerBuilder},
-    decode::{Metadatum, MetadatumValue},
+    b64::utilities::{assign_attributes, container_builder::ContainerBuilder},
+    decode::MetadatumValue,
     mzml::{
         attr_meta::*,
         schema::TagId,
         structs::{
-            BinaryDataArray, Chromatogram, CvParam, MzML, Precursor, PrecursorList, Product,
-            ProductList, ReferenceableParamGroup, ReferenceableParamGroupRef, ScanList, Spectrum,
+            BinaryDataArray, Chromatogram, CvParam, MzML, Precursor, Product,
+            ReferenceableParamGroup, ReferenceableParamGroupRef, ScanList, Spectrum,
         },
     },
 };
 
 #[derive(Debug)]
 pub struct PackedMeta {
-    pub index_offsets: Vec<u32>,          // CI
-    pub ids: Vec<u32>,                    // MOI
-    pub parent_indices: Vec<u32>,         // MPI
-    pub tag_ids: Vec<u8>,                 // MTI
-    pub ref_codes: Vec<u8>,               // MRI
-    pub accession_numbers: Vec<u32>,      // MAN
-    pub unit_ref_codes: Vec<u8>,          // MURI
-    pub unit_accession_numbers: Vec<u32>, // MUAN
-    pub value_kinds: Vec<u8>,             // VK
-    pub value_indices: Vec<u32>,          // VI
-    pub numeric_values: Vec<f64>,         // VN
-    pub string_offsets: Vec<u32>,         // VOFF
-    pub string_lengths: Vec<u32>,         // VLEN
-    pub string_bytes: Vec<u8>,            // VS
+    pub index_offsets: Vec<u32>,
+    pub ids: Vec<u32>,
+    pub parent_indices: Vec<u32>,
+    pub tag_ids: Vec<u8>,
+    pub ref_codes: Vec<u8>,
+    pub accession_numbers: Vec<u32>,
+    pub unit_ref_codes: Vec<u8>,
+    pub unit_accession_numbers: Vec<u32>,
+    pub value_kinds: Vec<u8>,
+    pub value_indices: Vec<u32>,
+    pub numeric_values: Vec<f64>,
+    pub string_offsets: Vec<u32>,
+    pub string_lengths: Vec<u32>,
+    pub string_bytes: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -287,6 +287,25 @@ impl NodeIdGen {
     }
 }
 
+#[derive(Debug, Default)]
+struct RowIdGen {
+    next: u32,
+}
+
+impl RowIdGen {
+    #[inline]
+    fn new() -> Self {
+        Self { next: 1 }
+    }
+
+    #[inline]
+    fn alloc(&mut self) -> u32 {
+        let id = self.next;
+        self.next += 1;
+        id
+    }
+}
+
 struct MetaAcc<'a> {
     out: &'a mut Vec<CvParam>,
     tags: &'a mut Vec<u8>,
@@ -335,6 +354,24 @@ impl<'a> MetaAcc<'a> {
     #[inline]
     fn extend_tagged_ids(&mut self, tag: TagId, id: u32, parent_id: u32, cvs: &[CvParam]) {
         self.extend_tagged_raw(tag as u8, id, parent_id, cvs);
+    }
+
+    #[inline]
+    fn touch_tagged_ids(&mut self, tag: TagId, id: u32, parent_id: u32) {
+        self.push_tagged_ids(
+            tag,
+            id,
+            parent_id,
+            CvParam {
+                cv_ref: None,
+                accession: None,
+                name: String::new(),
+                value: None,
+                unit_cv_ref: None,
+                unit_name: None,
+                unit_accession: None,
+            },
+        );
     }
 
     #[inline]
@@ -394,54 +431,23 @@ impl<'a> MetaAcc<'a> {
         self.push_attr_u32_tagged_raw(tag as u8, id, parent_id, accession_tail, value);
     }
 
-    /// <referenceableParamGroupRef>
     #[inline]
     fn extend_ref_group_cv_params_ids(
         &mut self,
-        tag: TagId,
-        id: u32,
-        parent_id: u32,
+        _owner_tag: TagId,
+        owner_element_id: u32,
+        owner_parent_element_id: u32,
         refs: &[ReferenceableParamGroupRef],
         ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
     ) {
         for r in refs {
             if let Some(g) = ref_groups.get(r.r#ref.as_str()) {
-                self.extend_tagged_ids(tag, id, parent_id, &g.cv_params);
-            }
-        }
-    }
-
-    #[inline]
-    fn push_assigned_attributes_as_cv_params(
-        &mut self,
-        tag: TagId,
-        id: u32,
-        parent_id: u32,
-        attrs: Vec<Metadatum>,
-    ) {
-        for m in attrs {
-            let tail = parse_accession_tail(m.accession.as_deref());
-            if tail == 0 {
-                continue;
-            }
-
-            match m.value {
-                MetadatumValue::Text(v) => {
-                    if v.is_empty() {
-                        continue;
-                    }
-                    self.push_tagged_ids(tag, id, parent_id, attr_cv_param(tail, &v));
-                }
-                MetadatumValue::Number(n) => {
-                    let s = n.to_string();
-                    if s.is_empty() {
-                        continue;
-                    }
-                    self.push_tagged_ids(tag, id, parent_id, attr_cv_param(tail, &s));
-                }
-                MetadatumValue::Empty => {
-                    self.push_tagged_ids(tag, id, parent_id, attr_cv_param(tail, ""));
-                }
+                self.extend_tagged_ids(
+                    TagId::CvParam,
+                    owner_element_id,
+                    owner_parent_element_id,
+                    &g.cv_params,
+                );
             }
         }
     }
@@ -476,7 +482,6 @@ impl<'a> MetaAcc<'a> {
     }
 }
 
-/// <referenceableParamGroupList>
 fn build_ref_group_map<'a>(mzml: &'a MzML) -> HashMap<&'a str, &'a ReferenceableParamGroup> {
     let mut map = HashMap::new();
     if let Some(list) = &mzml.referenceable_param_group_list {
@@ -488,67 +493,69 @@ fn build_ref_group_map<'a>(mzml: &'a MzML) -> HashMap<&'a str, &'a Referenceable
     map
 }
 
-/// <binaryDataArray>
 fn extend_binary_data_array_cv_params_ids(
     meta: &mut MetaAcc<'_>,
-    id: u32,
-    parent_id: u32,
-    ba: &BinaryDataArray,
+    binary_data_array_id: u32,
+    binary_data_array_list_id: u32,
+    binary_data_array: &BinaryDataArray,
     x_accession_tail: u32,
     y_accession_tail: u32,
     f32_compress: bool,
 ) {
-    let mut is_x = false;
-    let mut is_y = false;
-
-    for cv in &ba.cv_params {
+    let mut is_x_array = false;
+    let mut is_y_array = false;
+    for cv in &binary_data_array.cv_params {
         let tail = parse_accession_tail(cv.accession.as_deref());
         if tail == x_accession_tail {
-            is_x = true;
+            is_x_array = true;
         } else if tail == y_accession_tail {
-            is_y = true;
+            is_y_array = true;
         }
     }
 
-    let desired_float_tail = if f32_compress && (is_x || is_y) {
+    let desired_float_tail = if f32_compress && (is_x_array || is_y_array) {
         Some(ACC_32BIT_FLOAT)
     } else {
         None
     };
 
-    if desired_float_tail.is_none() {
-        meta.extend_tagged_ids(TagId::BinaryDataArray, id, parent_id, &ba.cv_params);
-        return;
-    }
-
-    let desired = desired_float_tail.unwrap();
-    let mut wrote_float = false;
-
-    for cv in &ba.cv_params {
-        let tail = parse_accession_tail(cv.accession.as_deref());
-
-        if tail == ACC_32BIT_FLOAT || tail == ACC_64BIT_FLOAT {
-            if !wrote_float {
-                meta.push_tagged_ids(
-                    TagId::BinaryDataArray,
-                    id,
-                    parent_id,
-                    ms_float_param(desired),
-                );
-                wrote_float = true;
+    if let Some(desired) = desired_float_tail {
+        let mut wrote_float = false;
+        for cv in &binary_data_array.cv_params {
+            let tail = parse_accession_tail(cv.accession.as_deref());
+            if tail == ACC_32BIT_FLOAT || tail == ACC_64BIT_FLOAT {
+                if !wrote_float {
+                    meta.push_tagged_ids(
+                        TagId::CvParam,
+                        binary_data_array_id,
+                        binary_data_array_list_id,
+                        ms_float_param(desired),
+                    );
+                    wrote_float = true;
+                }
+                continue;
             }
-            continue;
+            meta.push_tagged_ids(
+                TagId::CvParam,
+                binary_data_array_id,
+                binary_data_array_list_id,
+                cv.clone(),
+            );
         }
-
-        meta.push_tagged_ids(TagId::BinaryDataArray, id, parent_id, cv.clone());
-    }
-
-    if !wrote_float {
-        meta.push_tagged_ids(
-            TagId::BinaryDataArray,
-            id,
-            parent_id,
-            ms_float_param(desired),
+        if !wrote_float {
+            meta.push_tagged_ids(
+                TagId::CvParam,
+                binary_data_array_id,
+                binary_data_array_list_id,
+                ms_float_param(desired),
+            );
+        }
+    } else {
+        meta.extend_tagged_ids(
+            TagId::CvParam,
+            binary_data_array_id,
+            binary_data_array_list_id,
+            &binary_data_array.cv_params,
         );
     }
 }
@@ -571,416 +578,6 @@ fn ms_float_param(accession_tail: u32) -> CvParam {
     }
 }
 
-/// <scanList>
-fn flatten_scan_list_ids(
-    meta: &mut MetaAcc<'_>,
-    scan_list: &ScanList,
-    scan_list_id: u32,
-    id_gen: &mut NodeIdGen,
-    ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
-) {
-    for scan in &scan_list.scans {
-        let scan_id = id_gen.alloc();
-
-        // <scan> attributes
-        meta.push_schema_attributes(TagId::Scan, scan_id, scan_list_id, scan);
-
-        // <scan> refGroup
-        meta.extend_ref_group_cv_params_ids(
-            TagId::Scan,
-            scan_id,
-            scan_list_id,
-            &scan.referenceable_param_group_refs,
-            ref_groups,
-        );
-
-        // <scan> cvParams
-        meta.extend_tagged_ids(TagId::Scan, scan_id, scan_list_id, &scan.cv_params);
-
-        // <scanWindowList>/<scanWindow>
-        if let Some(wl) = &scan.scan_window_list {
-            for w in &wl.scan_windows {
-                let win_id = id_gen.alloc();
-
-                // <scanWindow> attributes
-                meta.push_schema_attributes(TagId::ScanWindow, win_id, scan_id, w);
-
-                // <scanWindow> cvParams
-                meta.extend_tagged_ids(TagId::ScanWindow, win_id, scan_id, &w.cv_params);
-            }
-        }
-    }
-}
-
-/// <precursorList>
-fn flatten_precursor_list_ids(
-    meta: &mut MetaAcc<'_>,
-    precursor_list: &PrecursorList,
-    parent_id: u32,
-    id_gen: &mut NodeIdGen,
-    ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
-) {
-    for p in &precursor_list.precursors {
-        flatten_precursor_ids(meta, p, parent_id, id_gen, ref_groups);
-    }
-}
-
-/// <precursor>
-fn flatten_precursor_ids(
-    meta: &mut MetaAcc<'_>,
-    precursor: &Precursor,
-    parent_id: u32,
-    id_gen: &mut NodeIdGen,
-    ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
-) {
-    let precursor_id = id_gen.alloc();
-
-    let base = meta.out.len();
-
-    meta.push_schema_attributes(TagId::Precursor, precursor_id, parent_id, precursor);
-
-    if let Some(r) = precursor.spectrum_ref.as_deref() {
-        let mut already = false;
-
-        for i in base..meta.out.len() {
-            if meta.owners[i] != precursor_id {
-                continue;
-            }
-            if meta.tags[i] != TagId::Precursor as u8 {
-                continue;
-            }
-
-            let tail = parse_accession_tail(meta.out[i].accession.as_deref());
-            if tail == ACC_ATTR_SPECTRUM_REF {
-                already = true;
-                break;
-            }
-        }
-
-        if !already {
-            meta.push_attr_string_tagged_ids(
-                TagId::Precursor,
-                precursor_id,
-                parent_id,
-                ACC_ATTR_SPECTRUM_REF,
-                r,
-            );
-        }
-    }
-
-    if let Some(iw) = &precursor.isolation_window {
-        let iw_id = id_gen.alloc();
-
-        meta.push_schema_attributes(TagId::IsolationWindow, iw_id, precursor_id, iw);
-
-        meta.extend_ref_group_cv_params_ids(
-            TagId::IsolationWindow,
-            iw_id,
-            precursor_id,
-            &iw.referenceable_param_group_refs,
-            ref_groups,
-        );
-
-        meta.extend_tagged_ids(TagId::IsolationWindow, iw_id, precursor_id, &iw.cv_params);
-    }
-
-    if let Some(sil) = &precursor.selected_ion_list {
-        let sil_id = id_gen.alloc();
-        meta.push_schema_attributes(TagId::SelectedIonList, sil_id, precursor_id, sil);
-        for ion in &sil.selected_ions {
-            let ion_id = id_gen.alloc();
-
-            meta.push_schema_attributes(TagId::SelectedIon, ion_id, sil_id, ion);
-
-            meta.extend_ref_group_cv_params_ids(
-                TagId::SelectedIon,
-                ion_id,
-                precursor_id,
-                &ion.referenceable_param_group_refs,
-                ref_groups,
-            );
-
-            meta.extend_tagged_ids(TagId::SelectedIon, ion_id, precursor_id, &ion.cv_params);
-        }
-    }
-
-    if let Some(act) = &precursor.activation {
-        let act_id = id_gen.alloc();
-
-        meta.push_schema_attributes(TagId::Activation, act_id, precursor_id, act);
-
-        meta.extend_ref_group_cv_params_ids(
-            TagId::Activation,
-            act_id,
-            precursor_id,
-            &act.referenceable_param_group_refs,
-            ref_groups,
-        );
-
-        meta.extend_tagged_ids(TagId::Activation, act_id, precursor_id, &act.cv_params);
-    }
-}
-
-/// <productList>
-fn flatten_product_list_ids(
-    meta: &mut MetaAcc<'_>,
-    product_list: &ProductList,
-    parent_id: u32,
-    id_gen: &mut NodeIdGen,
-    ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
-) {
-    for p in &product_list.products {
-        flatten_product_ids(meta, p, parent_id, id_gen, ref_groups);
-    }
-}
-
-/// <product>
-fn flatten_product_ids(
-    meta: &mut MetaAcc<'_>,
-    product: &Product,
-    parent_id: u32,
-    id_gen: &mut NodeIdGen,
-    ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
-) {
-    let product_id = id_gen.alloc();
-    meta.push_schema_attributes(TagId::Product, product_id, parent_id, product);
-
-    if let Some(iw) = &product.isolation_window {
-        let iw_id = id_gen.alloc();
-
-        meta.push_schema_attributes(TagId::IsolationWindow, iw_id, product_id, iw);
-
-        // Tag: IsolationWindow
-        meta.extend_ref_group_cv_params_ids(
-            TagId::IsolationWindow,
-            iw_id,
-            product_id,
-            &iw.referenceable_param_group_refs,
-            ref_groups,
-        );
-
-        // Tag: IsolationWindow
-        meta.extend_tagged_ids(TagId::IsolationWindow, iw_id, product_id, &iw.cv_params);
-    }
-}
-
-/// <spectrum>
-fn flatten_spectrum_metadata_into_owned(
-    meta: &mut MetaAcc<'_>,
-    spectrum: &Spectrum,
-    ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
-    spectrum_id: u32,
-    parent_id: u32,
-    id_gen: &mut NodeIdGen,
-    x_accession_tail: u32,
-    y_accession_tail: u32,
-    x_store_f64: bool,
-    y_store_f64: bool,
-    f32_compress: bool,
-) {
-    let attrs = assign_attributes(spectrum, TagId::Spectrum, spectrum_id, parent_id);
-    meta.push_assigned_attributes_as_cv_params(TagId::Spectrum, spectrum_id, parent_id, attrs);
-
-    meta.extend_ref_group_cv_params_ids(
-        TagId::Spectrum,
-        spectrum_id,
-        parent_id,
-        &spectrum.referenceable_param_group_refs,
-        ref_groups,
-    );
-
-    meta.extend_tagged_ids(TagId::Spectrum, spectrum_id, parent_id, &spectrum.cv_params);
-
-    if let Some(sd) = &spectrum.spectrum_description {
-        let sd_id = id_gen.alloc();
-        meta.extend_ref_group_cv_params_ids(
-            TagId::SpectrumDescription,
-            sd_id,
-            spectrum_id,
-            &sd.referenceable_param_group_refs,
-            ref_groups,
-        );
-
-        meta.extend_tagged_ids(
-            TagId::SpectrumDescription,
-            sd_id,
-            spectrum_id,
-            &sd.cv_params,
-        );
-
-        if let Some(sl) = &sd.scan_list {
-            let sl_id = id_gen.alloc();
-
-            let attrs = assign_attributes(sl, TagId::ScanList, sl_id, sd_id);
-            meta.push_assigned_attributes_as_cv_params(TagId::ScanList, sl_id, sd_id, attrs);
-
-            meta.extend_tagged_ids(TagId::ScanList, sl_id, sd_id, &sl.cv_params);
-
-            flatten_scan_list_ids(meta, sl, sl_id, id_gen, ref_groups);
-        }
-
-        if let Some(pl) = &sd.precursor_list {
-            let pl_id = id_gen.alloc();
-
-            let attrs = assign_attributes(pl, TagId::PrecursorList, pl_id, sd_id);
-            meta.push_assigned_attributes_as_cv_params(TagId::PrecursorList, pl_id, sd_id, attrs);
-
-            flatten_precursor_list_ids(meta, pl, pl_id, id_gen, ref_groups);
-        }
-
-        if let Some(pl) = &sd.product_list {
-            let pl_id = id_gen.alloc();
-
-            let attrs = assign_attributes(pl, TagId::ProductList, pl_id, sd_id);
-            meta.push_assigned_attributes_as_cv_params(TagId::ProductList, pl_id, sd_id, attrs);
-
-            flatten_product_list_ids(meta, pl, pl_id, id_gen, ref_groups);
-        }
-    }
-
-    if let Some(sl) = &spectrum.scan_list {
-        let sl_id = id_gen.alloc();
-
-        let attrs = assign_attributes(sl, TagId::ScanList, sl_id, spectrum_id);
-        meta.push_assigned_attributes_as_cv_params(TagId::ScanList, sl_id, spectrum_id, attrs);
-
-        meta.extend_tagged_ids(TagId::ScanList, sl_id, spectrum_id, &sl.cv_params);
-
-        flatten_scan_list_ids(meta, sl, sl_id, id_gen, ref_groups);
-    }
-
-    if let Some(pl) = &spectrum.precursor_list {
-        let pl_id = id_gen.alloc();
-
-        let attrs = assign_attributes(pl, TagId::PrecursorList, pl_id, spectrum_id);
-        meta.push_assigned_attributes_as_cv_params(TagId::PrecursorList, pl_id, spectrum_id, attrs);
-
-        flatten_precursor_list_ids(meta, pl, pl_id, id_gen, ref_groups);
-    }
-
-    if let Some(pl) = &spectrum.product_list {
-        let pl_id = id_gen.alloc();
-
-        let attrs = assign_attributes(pl, TagId::ProductList, pl_id, spectrum_id);
-        meta.push_assigned_attributes_as_cv_params(TagId::ProductList, pl_id, spectrum_id, attrs);
-
-        flatten_product_list_ids(meta, pl, pl_id, id_gen, ref_groups);
-    }
-
-    if let Some(bal) = &spectrum.binary_data_array_list {
-        let bal_id = id_gen.alloc();
-
-        let attrs = assign_attributes(bal, TagId::BinaryDataArrayList, bal_id, spectrum_id);
-        meta.push_assigned_attributes_as_cv_params(
-            TagId::BinaryDataArrayList,
-            bal_id,
-            spectrum_id,
-            attrs,
-        );
-
-        for ba in &bal.binary_data_arrays {
-            let ba_id = id_gen.alloc();
-
-            meta.push_schema_attributes(TagId::BinaryDataArray, ba_id, bal_id, ba);
-
-            meta.extend_ref_group_cv_params_ids(
-                TagId::BinaryDataArray,
-                ba_id,
-                bal_id,
-                &ba.referenceable_param_group_refs,
-                ref_groups,
-            );
-
-            extend_binary_data_array_cv_params_ids(
-                meta,
-                ba_id,
-                bal_id,
-                ba,
-                x_accession_tail,
-                y_accession_tail,
-                f32_compress,
-            );
-
-            let _ = (x_store_f64, y_store_f64);
-        }
-    }
-}
-
-/// <chromatogram>
-fn flatten_chromatogram_metadata_into(
-    meta: &mut MetaAcc<'_>,
-    chrom: &Chromatogram,
-    ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
-    chrom_id: u32,
-    parent_id: u32,
-    id_gen: &mut NodeIdGen,
-    x_accession_tail: u32,
-    y_accession_tail: u32,
-    x_store_f64: bool,
-    y_store_f64: bool,
-    f32_compress: bool,
-) {
-    let attrs = assign_attributes(chrom, TagId::Chromatogram, chrom_id, parent_id);
-    meta.push_assigned_attributes_as_cv_params(TagId::Chromatogram, chrom_id, parent_id, attrs);
-
-    meta.extend_ref_group_cv_params_ids(
-        TagId::Chromatogram,
-        chrom_id,
-        parent_id,
-        &chrom.referenceable_param_group_refs,
-        ref_groups,
-    );
-
-    meta.extend_tagged_ids(TagId::Chromatogram, chrom_id, parent_id, &chrom.cv_params);
-
-    if let Some(p) = &chrom.precursor {
-        flatten_precursor_ids(meta, p, chrom_id, id_gen, ref_groups);
-    }
-
-    if let Some(p) = &chrom.product {
-        flatten_product_ids(meta, p, chrom_id, id_gen, ref_groups);
-    }
-
-    if let Some(bal) = &chrom.binary_data_array_list {
-        let bal_id = id_gen.alloc();
-
-        let attrs = assign_attributes(bal, TagId::BinaryDataArrayList, bal_id, chrom_id);
-        meta.push_assigned_attributes_as_cv_params(
-            TagId::BinaryDataArrayList,
-            bal_id,
-            chrom_id,
-            attrs,
-        );
-
-        for ba in &bal.binary_data_arrays {
-            let ba_id = id_gen.alloc();
-
-            meta.push_schema_attributes(TagId::BinaryDataArray, ba_id, bal_id, ba);
-
-            meta.extend_ref_group_cv_params_ids(
-                TagId::BinaryDataArray,
-                ba_id,
-                bal_id,
-                &ba.referenceable_param_group_refs,
-                ref_groups,
-            );
-
-            extend_binary_data_array_cv_params_ids(
-                meta,
-                ba_id,
-                bal_id,
-                ba,
-                x_accession_tail,
-                y_accession_tail,
-                f32_compress,
-            );
-
-            let _ = (x_store_f64, y_store_f64);
-        }
-    }
-}
-
-/// <cvList>
 fn build_global_meta_items(
     mzml: &MzML,
     ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
@@ -988,96 +585,111 @@ fn build_global_meta_items(
 ) -> (Vec<GlobalMetaItem>, GlobalCounts) {
     let mut items: Vec<GlobalMetaItem> = Vec::new();
 
-    {
-        let fd = &mzml.file_description;
-
+    if let Some(file_description) = &mzml.file_description {
         let mut out = Vec::new();
         let mut tags = Vec::new();
         let mut owners = Vec::new();
         let mut parents = Vec::new();
         let mut meta = MetaAcc::new(&mut out, &mut tags, &mut owners, &mut parents);
 
-        // <fileDescription>
-        let file_desc_id = id_gen.alloc();
+        let file_description_id = id_gen.alloc();
+        meta.touch_tagged_ids(TagId::FileDescription, file_description_id, 0);
 
-        // <fileContent>
         let file_content_id = id_gen.alloc();
+        meta.touch_tagged_ids(TagId::FileContent, file_content_id, file_description_id);
 
         meta.extend_ref_group_cv_params_ids(
             TagId::FileContent,
             file_content_id,
-            file_desc_id,
-            &fd.file_content.referenceable_param_group_refs,
+            file_description_id,
+            &file_description.file_content.referenceable_param_group_refs,
             ref_groups,
         );
 
         meta.extend_tagged_ids(
-            TagId::FileContent,
+            TagId::CvParam,
             file_content_id,
-            file_desc_id,
-            &fd.file_content.cv_params,
+            file_description_id,
+            &file_description.file_content.cv_params,
         );
 
-        let sfl_id = id_gen.alloc();
+        let source_file_list_id = id_gen.alloc();
+        meta.touch_tagged_ids(
+            TagId::SourceFileList,
+            source_file_list_id,
+            file_description_id,
+        );
 
         meta.push_attr_usize_tagged_ids(
             TagId::SourceFileList,
-            sfl_id,
-            file_desc_id,
+            source_file_list_id,
+            file_description_id,
             ACC_ATTR_COUNT,
-            Some(fd.source_file_list.source_file.len() as u32),
+            Some(file_description.source_file_list.source_file.len() as u32),
         );
 
-        for sf in &fd.source_file_list.source_file {
-            let sf_id = id_gen.alloc();
+        for source_file in &file_description.source_file_list.source_file {
+            let source_file_id = id_gen.alloc();
+            meta.touch_tagged_ids(TagId::SourceFile, source_file_id, source_file_list_id);
 
             meta.push_attr_string_tagged_ids(
                 TagId::SourceFile,
-                sf_id,
-                sfl_id,
+                source_file_id,
+                source_file_list_id,
                 ACC_ATTR_ID,
-                sf.id.as_str(),
+                source_file.id.as_str(),
             );
 
             meta.push_attr_string_tagged_ids(
                 TagId::SourceFile,
-                sf_id,
-                sfl_id,
+                source_file_id,
+                source_file_list_id,
                 ACC_ATTR_NAME,
-                sf.name.as_str(),
+                source_file.name.as_str(),
             );
 
             meta.push_attr_string_tagged_ids(
                 TagId::SourceFile,
-                sf_id,
-                sfl_id,
+                source_file_id,
+                source_file_list_id,
                 ACC_ATTR_LOCATION,
-                sf.location.as_str(),
+                source_file.location.as_str(),
             );
 
             meta.extend_ref_group_cv_params_ids(
                 TagId::SourceFile,
-                sf_id,
-                sfl_id,
-                &sf.referenceable_param_group_ref,
+                source_file_id,
+                source_file_list_id,
+                &source_file.referenceable_param_group_ref,
                 ref_groups,
             );
 
-            meta.extend_tagged_ids(TagId::SourceFile, sf_id, sfl_id, &sf.cv_param);
+            meta.extend_tagged_ids(
+                TagId::CvParam,
+                source_file_id,
+                source_file_list_id,
+                &source_file.cv_param,
+            );
         }
 
-        for c in &fd.contacts {
+        for contact in &file_description.contacts {
             let contact_id = id_gen.alloc();
+            meta.touch_tagged_ids(TagId::Contact, contact_id, file_description_id);
 
             meta.extend_ref_group_cv_params_ids(
                 TagId::Contact,
                 contact_id,
-                file_desc_id,
-                &c.referenceable_param_group_refs,
+                file_description_id,
+                &contact.referenceable_param_group_refs,
                 ref_groups,
             );
 
-            meta.extend_tagged_ids(TagId::Contact, contact_id, file_desc_id, &c.cv_params);
+            meta.extend_tagged_ids(
+                TagId::CvParam,
+                contact_id,
+                file_description_id,
+                &contact.cv_params,
+            );
         }
 
         items.push(GlobalMetaItem {
@@ -1101,6 +713,7 @@ fn build_global_meta_items(
         let mut meta = MetaAcc::new(&mut out, &mut tags, &mut owners, &mut parents);
 
         let run_id = id_gen.alloc();
+        meta.touch_tagged_ids(TagId::Run, run_id, 0);
 
         if !run.id.is_empty() {
             meta.push_attr_string_tagged_ids(TagId::Run, run_id, 0, ACC_ATTR_ID, run.id.as_str());
@@ -1134,42 +747,55 @@ fn build_global_meta_items(
             meta.push_attr_string_tagged_ids(TagId::Run, run_id, 0, ACC_ATTR_SAMPLE_REF, v);
         }
 
-        if let Some(sfrl) = &run.source_file_ref_list {
-            let sfrl_id = id_gen.alloc();
+        if let Some(source_file_ref_list) = &run.source_file_ref_list {
+            let source_file_ref_list_id = id_gen.alloc();
+            meta.touch_tagged_ids(TagId::SourceFileRefList, source_file_ref_list_id, run_id);
 
             meta.push_attr_usize_tagged_ids(
                 TagId::SourceFileRefList,
-                sfrl_id,
+                source_file_ref_list_id,
                 run_id,
                 ACC_ATTR_COUNT,
-                Some(sfrl.source_file_refs.len() as u32),
+                Some(source_file_ref_list.source_file_refs.len() as u32),
             );
 
-            for sref in &sfrl.source_file_refs {
-                let sref_id = id_gen.alloc();
+            for source_file_ref in &source_file_ref_list.source_file_refs {
+                let source_file_ref_id = id_gen.alloc();
+                meta.touch_tagged_ids(
+                    TagId::SourceFileRef,
+                    source_file_ref_id,
+                    source_file_ref_list_id,
+                );
+
                 meta.push_attr_string_tagged_ids(
                     TagId::SourceFileRef,
-                    sref_id,
-                    sfrl_id,
+                    source_file_ref_id,
+                    source_file_ref_list_id,
                     ACC_ATTR_REF,
-                    sref.r#ref.as_str(),
+                    source_file_ref.r#ref.as_str(),
                 );
             }
         }
 
-        for r in &run.referenceable_param_group_refs {
-            let rgr_id = id_gen.alloc();
+        for referenceable_group_ref in &run.referenceable_param_group_refs {
+            let referenceable_group_ref_id = id_gen.alloc();
+            meta.touch_tagged_ids(
+                TagId::ReferenceableParamGroupRef,
+                referenceable_group_ref_id,
+                run_id,
+            );
+
             meta.push_attr_string_tagged_ids(
                 TagId::ReferenceableParamGroupRef,
-                rgr_id,
+                referenceable_group_ref_id,
                 run_id,
                 ACC_ATTR_REF,
-                r.r#ref.as_str(),
+                referenceable_group_ref.r#ref.as_str(),
             );
         }
 
         if !run.cv_params.is_empty() {
-            meta.extend_tagged_ids(TagId::Run, run_id, 0, &run.cv_params);
+            meta.extend_tagged_ids(TagId::CvParam, run_id, 0, &run.cv_params);
         }
 
         items.push(GlobalMetaItem {
@@ -1181,25 +807,26 @@ fn build_global_meta_items(
     }
 
     let ref_start = items.len();
-    if let Some(rpgl) = &mzml.referenceable_param_group_list {
-        for g in &rpgl.referenceable_param_groups {
+    if let Some(referenceable_param_group_list) = &mzml.referenceable_param_group_list {
+        for group in &referenceable_param_group_list.referenceable_param_groups {
             let mut out = Vec::new();
             let mut tags = Vec::new();
             let mut owners = Vec::new();
             let mut parents = Vec::new();
             let mut meta = MetaAcc::new(&mut out, &mut tags, &mut owners, &mut parents);
 
-            let g_id = id_gen.alloc();
+            let group_id = id_gen.alloc();
+            meta.touch_tagged_ids(TagId::ReferenceableParamGroup, group_id, 0);
 
             meta.push_attr_string_tagged_ids(
                 TagId::ReferenceableParamGroup,
-                g_id,
+                group_id,
                 0,
                 ACC_ATTR_ID,
-                g.id.as_str(),
+                group.id.as_str(),
             );
 
-            meta.extend_tagged_ids(TagId::ReferenceableParamGroup, g_id, 0, &g.cv_params);
+            meta.extend_tagged_ids(TagId::CvParam, group_id, 0, &group.cv_params);
 
             items.push(GlobalMetaItem {
                 cvs: out,
@@ -1212,8 +839,8 @@ fn build_global_meta_items(
     let n_ref_param_groups = (items.len() - ref_start) as u32;
 
     let samples_start = items.len();
-    if let Some(sl) = &mzml.sample_list {
-        for s in &sl.samples {
+    if let Some(sample_list) = &mzml.sample_list {
+        for sample in &sample_list.samples {
             let mut out = Vec::new();
             let mut tags = Vec::new();
             let mut owners = Vec::new();
@@ -1221,13 +848,14 @@ fn build_global_meta_items(
             let mut meta = MetaAcc::new(&mut out, &mut tags, &mut owners, &mut parents);
 
             let sample_id = id_gen.alloc();
+            meta.touch_tagged_ids(TagId::Sample, sample_id, 0);
 
             meta.push_attr_string_tagged_ids(
                 TagId::Sample,
                 sample_id,
                 0,
                 ACC_ATTR_ID,
-                s.id.as_str(),
+                sample.id.as_str(),
             );
 
             meta.push_attr_string_tagged_ids(
@@ -1235,10 +863,10 @@ fn build_global_meta_items(
                 sample_id,
                 0,
                 ACC_ATTR_NAME,
-                s.name.as_str(),
+                sample.name.as_str(),
             );
 
-            if let Some(r) = &s.referenceable_param_group_ref {
+            if let Some(r) = &sample.referenceable_param_group_ref {
                 meta.extend_ref_group_cv_params_ids(
                     TagId::Sample,
                     sample_id,
@@ -1247,8 +875,6 @@ fn build_global_meta_items(
                     ref_groups,
                 );
             }
-
-            meta.extend_tagged_ids(TagId::Sample, sample_id, 0, &[]);
 
             items.push(GlobalMetaItem {
                 cvs: out,
@@ -1261,98 +887,123 @@ fn build_global_meta_items(
     let n_samples = (items.len() - samples_start) as u32;
 
     let instr_start = items.len();
-    if let Some(il) = &mzml.instrument_list {
-        for ic in &il.instrument {
+    if let Some(instrument_list) = &mzml.instrument_list {
+        for instrument_config in &instrument_list.instrument {
             let mut out = Vec::new();
             let mut tags = Vec::new();
             let mut owners = Vec::new();
             let mut parents = Vec::new();
             let mut meta = MetaAcc::new(&mut out, &mut tags, &mut owners, &mut parents);
 
-            let inst_id = id_gen.alloc();
+            let instrument_id = id_gen.alloc();
+            meta.touch_tagged_ids(TagId::Instrument, instrument_id, 0);
 
             meta.push_attr_string_tagged_ids(
                 TagId::Instrument,
-                inst_id,
+                instrument_id,
                 0,
                 ACC_ATTR_ID,
-                ic.id.as_str(),
+                instrument_config.id.as_str(),
             );
 
             meta.extend_ref_group_cv_params_ids(
                 TagId::Instrument,
-                inst_id,
+                instrument_id,
                 0,
-                &ic.referenceable_param_group_ref,
+                &instrument_config.referenceable_param_group_ref,
                 ref_groups,
             );
 
-            meta.extend_tagged_ids(TagId::Instrument, inst_id, 0, &ic.cv_param);
+            meta.extend_tagged_ids(
+                TagId::CvParam,
+                instrument_id,
+                0,
+                &instrument_config.cv_param,
+            );
 
-            if let Some(cl) = &ic.component_list {
-                for s in &cl.source {
-                    let cid = id_gen.alloc();
+            if let Some(component_list) = &instrument_config.component_list {
+                for src in &component_list.source {
+                    let component_id = id_gen.alloc();
+                    meta.touch_tagged_ids(TagId::ComponentSource, component_id, instrument_id);
+
                     meta.push_attr_usize_tagged_ids(
                         TagId::ComponentSource,
-                        cid,
-                        inst_id,
+                        component_id,
+                        instrument_id,
                         ACC_ATTR_ORDER,
-                        s.order,
+                        src.order,
                     );
 
                     meta.extend_ref_group_cv_params_ids(
                         TagId::ComponentSource,
-                        cid,
-                        inst_id,
-                        &s.referenceable_param_group_ref,
+                        component_id,
+                        instrument_id,
+                        &src.referenceable_param_group_ref,
                         ref_groups,
                     );
 
-                    meta.extend_tagged_ids(TagId::ComponentSource, cid, inst_id, &s.cv_param);
+                    meta.extend_tagged_ids(
+                        TagId::CvParam,
+                        component_id,
+                        instrument_id,
+                        &src.cv_param,
+                    );
                 }
 
-                for a in &cl.analyzer {
-                    let cid = id_gen.alloc();
+                for analyzer in &component_list.analyzer {
+                    let component_id = id_gen.alloc();
+                    meta.touch_tagged_ids(TagId::ComponentAnalyzer, component_id, instrument_id);
 
                     meta.push_attr_usize_tagged_ids(
                         TagId::ComponentAnalyzer,
-                        cid,
-                        inst_id,
+                        component_id,
+                        instrument_id,
                         ACC_ATTR_ORDER,
-                        a.order,
+                        analyzer.order,
                     );
 
                     meta.extend_ref_group_cv_params_ids(
                         TagId::ComponentAnalyzer,
-                        cid,
-                        inst_id,
-                        &a.referenceable_param_group_ref,
+                        component_id,
+                        instrument_id,
+                        &analyzer.referenceable_param_group_ref,
                         ref_groups,
                     );
 
-                    meta.extend_tagged_ids(TagId::ComponentAnalyzer, cid, inst_id, &a.cv_param);
+                    meta.extend_tagged_ids(
+                        TagId::CvParam,
+                        component_id,
+                        instrument_id,
+                        &analyzer.cv_param,
+                    );
                 }
 
-                for d in &cl.detector {
-                    let cid = id_gen.alloc();
+                for detector in &component_list.detector {
+                    let component_id = id_gen.alloc();
+                    meta.touch_tagged_ids(TagId::ComponentDetector, component_id, instrument_id);
 
                     meta.push_attr_usize_tagged_ids(
                         TagId::ComponentDetector,
-                        cid,
-                        inst_id,
+                        component_id,
+                        instrument_id,
                         ACC_ATTR_ORDER,
-                        d.order,
+                        detector.order,
                     );
 
                     meta.extend_ref_group_cv_params_ids(
                         TagId::ComponentDetector,
-                        cid,
-                        inst_id,
-                        &d.referenceable_param_group_ref,
+                        component_id,
+                        instrument_id,
+                        &detector.referenceable_param_group_ref,
                         ref_groups,
                     );
 
-                    meta.extend_tagged_ids(TagId::ComponentDetector, cid, inst_id, &d.cv_param);
+                    meta.extend_tagged_ids(
+                        TagId::CvParam,
+                        component_id,
+                        instrument_id,
+                        &detector.cv_param,
+                    );
                 }
             }
 
@@ -1367,37 +1018,53 @@ fn build_global_meta_items(
     let n_instrument_configs = (items.len() - instr_start) as u32;
 
     let sw_start = items.len();
-    if let Some(sw) = &mzml.software_list {
-        for s in &sw.software {
+    if let Some(software_list) = &mzml.software_list {
+        for software in &software_list.software {
             let mut out = Vec::new();
             let mut tags = Vec::new();
             let mut owners = Vec::new();
             let mut parents = Vec::new();
             let mut meta = MetaAcc::new(&mut out, &mut tags, &mut owners, &mut parents);
 
-            let sw_id = id_gen.alloc();
+            let software_id = id_gen.alloc();
+            meta.touch_tagged_ids(TagId::Software, software_id, 0);
 
-            meta.push_attr_string_tagged_ids(TagId::Software, sw_id, 0, ACC_ATTR_ID, s.id.as_str());
+            meta.push_attr_string_tagged_ids(
+                TagId::Software,
+                software_id,
+                0,
+                ACC_ATTR_ID,
+                software.id.as_str(),
+            );
 
-            let ver = s
-                .version
-                .as_deref()
-                .or_else(|| s.software_param.first().and_then(|p| p.version.as_deref()));
+            let ver = software.version.as_deref().or_else(|| {
+                software
+                    .software_param
+                    .first()
+                    .and_then(|p| p.version.as_deref())
+            });
             if let Some(ver) = ver {
-                meta.push_attr_string_tagged_ids(TagId::Software, sw_id, 0, ACC_ATTR_VERSION, ver);
+                meta.push_attr_string_tagged_ids(
+                    TagId::Software,
+                    software_id,
+                    0,
+                    ACC_ATTR_VERSION,
+                    ver,
+                );
             }
 
-            for p in &s.software_param {
-                let sp_id = id_gen.alloc();
+            for software_param in &software.software_param {
+                let software_param_id = id_gen.alloc();
+                meta.touch_tagged_ids(TagId::SoftwareParam, software_param_id, software_id);
 
                 meta.push_tagged_ids(
                     TagId::SoftwareParam,
-                    sp_id,
-                    sw_id,
+                    software_param_id,
+                    software_id,
                     CvParam {
-                        cv_ref: p.cv_ref.clone(),
-                        accession: Some(p.accession.clone()),
-                        name: p.name.clone(),
+                        cv_ref: software_param.cv_ref.clone(),
+                        accession: Some(software_param.accession.clone()),
+                        name: software_param.name.clone(),
                         value: Some(String::new()),
                         unit_cv_ref: None,
                         unit_name: None,
@@ -1406,7 +1073,7 @@ fn build_global_meta_items(
                 );
             }
 
-            meta.extend_tagged_ids(TagId::Software, sw_id, 0, &s.cv_param);
+            meta.extend_tagged_ids(TagId::CvParam, software_id, 0, &software.cv_param);
 
             items.push(GlobalMetaItem {
                 cvs: out,
@@ -1419,36 +1086,47 @@ fn build_global_meta_items(
     let n_software = (items.len() - sw_start) as u32;
 
     let dp_start = items.len();
-    if let Some(dpl) = &mzml.data_processing_list {
-        for dp in &dpl.data_processing {
+    if let Some(data_processing_list) = &mzml.data_processing_list {
+        for data_processing in &data_processing_list.data_processing {
             let mut out = Vec::new();
             let mut tags = Vec::new();
             let mut owners = Vec::new();
             let mut parents = Vec::new();
             let mut meta = MetaAcc::new(&mut out, &mut tags, &mut owners, &mut parents);
 
-            let dp_id = id_gen.alloc();
+            let data_processing_id = id_gen.alloc();
+            meta.touch_tagged_ids(TagId::DataProcessing, data_processing_id, 0);
 
             meta.push_attr_string_tagged_ids(
                 TagId::DataProcessing,
-                dp_id,
+                data_processing_id,
                 0,
                 ACC_ATTR_ID,
-                dp.id.as_str(),
+                data_processing.id.as_str(),
             );
 
-            for m in &dp.processing_method {
-                let pm_id = id_gen.alloc();
+            for processing_method in &data_processing.processing_method {
+                let processing_method_id = id_gen.alloc();
+                meta.touch_tagged_ids(
+                    TagId::ProcessingMethod,
+                    processing_method_id,
+                    data_processing_id,
+                );
 
                 meta.extend_ref_group_cv_params_ids(
                     TagId::ProcessingMethod,
-                    pm_id,
-                    dp_id,
-                    &m.referenceable_param_group_ref,
+                    processing_method_id,
+                    data_processing_id,
+                    &processing_method.referenceable_param_group_ref,
                     ref_groups,
                 );
 
-                meta.extend_tagged_ids(TagId::ProcessingMethod, pm_id, dp_id, &m.cv_param);
+                meta.extend_tagged_ids(
+                    TagId::CvParam,
+                    processing_method_id,
+                    data_processing_id,
+                    &processing_method.cv_param,
+                );
             }
 
             items.push(GlobalMetaItem {
@@ -1462,76 +1140,105 @@ fn build_global_meta_items(
     let n_data_processing = (items.len() - dp_start) as u32;
 
     let acq_start = items.len();
-    if let Some(ssl) = &mzml.scan_settings_list {
-        for ss in &ssl.scan_settings {
+    if let Some(scan_settings_list) = &mzml.scan_settings_list {
+        for scan_settings in &scan_settings_list.scan_settings {
             let mut out = Vec::new();
             let mut tags = Vec::new();
             let mut owners = Vec::new();
             let mut parents = Vec::new();
             let mut meta = MetaAcc::new(&mut out, &mut tags, &mut owners, &mut parents);
 
-            let ss_id = id_gen.alloc();
+            let scan_settings_id = id_gen.alloc();
+            meta.touch_tagged_ids(TagId::ScanSettings, scan_settings_id, 0);
 
-            if let Some(id) = ss.id.as_deref() {
-                meta.push_attr_string_tagged_ids(TagId::ScanSettings, ss_id, 0, ACC_ATTR_ID, id);
-            }
-
-            if let Some(icr) = ss.instrument_configuration_ref.as_deref() {
+            if let Some(id) = scan_settings.id.as_deref() {
                 meta.push_attr_string_tagged_ids(
                     TagId::ScanSettings,
-                    ss_id,
+                    scan_settings_id,
+                    0,
+                    ACC_ATTR_ID,
+                    id,
+                );
+            }
+
+            if let Some(icr) = scan_settings.instrument_configuration_ref.as_deref() {
+                meta.push_attr_string_tagged_ids(
+                    TagId::ScanSettings,
+                    scan_settings_id,
                     0,
                     ACC_ATTR_INSTRUMENT_CONFIGURATION_REF,
                     icr,
                 );
             }
 
-            if let Some(sfrl) = &ss.source_file_ref_list {
-                let sfrl_id = id_gen.alloc();
+            if let Some(source_file_ref_list) = &scan_settings.source_file_ref_list {
+                let source_file_ref_list_id = id_gen.alloc();
+                meta.touch_tagged_ids(
+                    TagId::SourceFileRefList,
+                    source_file_ref_list_id,
+                    scan_settings_id,
+                );
 
                 meta.push_attr_usize_tagged_ids(
                     TagId::SourceFileRefList,
-                    sfrl_id,
-                    ss_id,
+                    source_file_ref_list_id,
+                    scan_settings_id,
                     ACC_ATTR_COUNT,
-                    Some(sfrl.source_file_refs.len() as u32),
+                    Some(source_file_ref_list.source_file_refs.len() as u32),
                 );
 
-                for sref in &sfrl.source_file_refs {
-                    let sfr_id = id_gen.alloc();
+                for source_file_ref in &source_file_ref_list.source_file_refs {
+                    let source_file_ref_id = id_gen.alloc();
+                    meta.touch_tagged_ids(
+                        TagId::SourceFileRef,
+                        source_file_ref_id,
+                        source_file_ref_list_id,
+                    );
+
                     meta.push_attr_string_tagged_ids(
                         TagId::SourceFileRef,
-                        sfr_id,
-                        sfrl_id,
+                        source_file_ref_id,
+                        source_file_ref_list_id,
                         ACC_ATTR_REF,
-                        sref.r#ref.as_str(),
+                        source_file_ref.r#ref.as_str(),
                     );
                 }
             }
 
             meta.extend_ref_group_cv_params_ids(
                 TagId::ScanSettings,
-                ss_id,
+                scan_settings_id,
                 0,
-                &ss.referenceable_param_group_refs,
+                &scan_settings.referenceable_param_group_refs,
                 ref_groups,
             );
 
-            meta.extend_tagged_ids(TagId::ScanSettings, ss_id, 0, &ss.cv_params);
+            meta.extend_tagged_ids(
+                TagId::CvParam,
+                scan_settings_id,
+                0,
+                &scan_settings.cv_params,
+            );
 
-            if let Some(tl) = &ss.target_list {
-                for t in &tl.targets {
-                    let tgt_id = id_gen.alloc();
+            if let Some(target_list) = &scan_settings.target_list {
+                for target in &target_list.targets {
+                    let target_id = id_gen.alloc();
+                    meta.touch_tagged_ids(TagId::Target, target_id, scan_settings_id);
 
                     meta.extend_ref_group_cv_params_ids(
                         TagId::Target,
-                        tgt_id,
-                        ss_id,
-                        &t.referenceable_param_group_refs,
+                        target_id,
+                        scan_settings_id,
+                        &target.referenceable_param_group_refs,
                         ref_groups,
                     );
 
-                    meta.extend_tagged_ids(TagId::Target, tgt_id, ss_id, &t.cv_params);
+                    meta.extend_tagged_ids(
+                        TagId::CvParam,
+                        target_id,
+                        scan_settings_id,
+                        &target.cv_params,
+                    );
                 }
             }
 
@@ -1546,13 +1253,13 @@ fn build_global_meta_items(
     let n_acquisition_settings = (items.len() - acq_start) as u32;
 
     let cv_start = items.len();
-    if let Some(cl) = &mzml.cv_list {
-        let cv_count = cl.cv.len() as u32;
+    if let Some(cv_list) = &mzml.cv_list {
+        let cv_count = cv_list.cv.len() as u32;
 
         if cv_count != 0 {
             let cv_list_id = id_gen.alloc();
 
-            for (i, cv) in cl.cv.iter().enumerate() {
+            for (i, cv) in cv_list.cv.iter().enumerate() {
                 let mut out = Vec::new();
                 let mut tags = Vec::new();
                 let mut owners = Vec::new();
@@ -1560,6 +1267,7 @@ fn build_global_meta_items(
                 let mut meta = MetaAcc::new(&mut out, &mut tags, &mut owners, &mut parents);
 
                 if i == 0 {
+                    meta.touch_tagged_ids(TagId::CvList, cv_list_id, 0);
                     meta.push_attr_usize_tagged_ids(
                         TagId::CvList,
                         cv_list_id,
@@ -1570,6 +1278,7 @@ fn build_global_meta_items(
                 }
 
                 let cv_id = id_gen.alloc();
+                meta.touch_tagged_ids(TagId::Cv, cv_id, cv_list_id);
 
                 meta.push_attr_string_tagged_ids(
                     TagId::Cv,
@@ -1646,8 +1355,8 @@ fn build_global_meta_items(
 #[inline]
 fn pack_cv_param(
     tag_id: u8,
-    id: u32,
-    parent_id: u32,
+    record_id: u32,
+    parent_record_id: u32,
     cv: &CvParam,
     tag_ids: &mut Vec<u8>,
     ids: &mut Vec<u32>,
@@ -1666,8 +1375,8 @@ fn pack_cv_param(
     string_index: &mut u32,
 ) {
     tag_ids.push(tag_id);
-    ids.push(id);
-    parent_indices.push(parent_id);
+    ids.push(record_id);
+    parent_indices.push(parent_record_id);
 
     let cv_ref = cv_ref_from_accession(cv.accession.as_deref()).or(cv.cv_ref.as_deref());
     ref_codes.push(cv_ref_code_from_str(cv_ref));
@@ -1713,8 +1422,7 @@ fn cv_ref_from_accession<'a>(acc: Option<&'a str>) -> Option<&'a str> {
     acc.and_then(|s| s.split_once(':').map(|(p, _)| p))
 }
 
-/// <cvParam>
-fn pack_meta_streaming<T, F>(items: &[T], mut fill: F) -> PackedMeta
+fn pack_meta_streaming<T, F>(row_ids: &mut RowIdGen, items: &[T], mut fill: F) -> PackedMeta
 where
     F: FnMut(&mut MetaAcc<'_>, &T),
 {
@@ -1770,10 +1478,15 @@ where
         debug_assert_eq!(scratch.len(), scratch_parents.len());
 
         for i in 0..scratch.len() {
+            let element_id = scratch_owners[i];
+            let parent_element_id = scratch_parents[i];
+
+            let _ = row_ids.alloc();
+
             pack_cv_param(
                 scratch_tags[i],
-                scratch_owners[i],
-                scratch_parents[i],
+                element_id,
+                parent_element_id,
                 &scratch[i],
                 &mut tag_ids,
                 &mut ids,
@@ -1815,7 +1528,7 @@ where
     }
 }
 
-fn pack_meta_slices<T, F>(items: &[T], meta_of: F) -> PackedMeta
+fn pack_meta_slices<T, F>(row_ids: &mut RowIdGen, items: &[T], meta_of: F) -> PackedMeta
 where
     F: Fn(&T) -> (&[CvParam], &[u8], &[u32], &[u32]),
 {
@@ -1857,10 +1570,15 @@ where
         debug_assert_eq!(xs.len(), ps.len());
 
         for i in 0..xs.len() {
+            let element_id = os[i];
+            let parent_element_id = ps[i];
+
+            let _ = row_ids.alloc();
+
             pack_cv_param(
                 ts[i],
-                os[i],
-                ps[i],
+                element_id,
+                parent_element_id,
                 &xs[i],
                 &mut tag_ids,
                 &mut ids,
@@ -1977,7 +1695,6 @@ fn append_aligned_8(output: &mut Vec<u8>, bytes: &[u8]) -> u64 {
     offset
 }
 
-/// <binaryDataArray>
 fn array_ref<'a>(ba: &'a BinaryDataArray) -> Option<ArrayRef<'a>> {
     let bin = ba.binary.as_ref()?;
 
@@ -2092,7 +1809,6 @@ fn bda_declared_is_f64(ba: &BinaryDataArray) -> Option<bool> {
     }
 }
 
-/// <mzML>
 pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8> {
     assert!(compression_level <= 22);
 
@@ -2102,7 +1818,7 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
             if cv.cv_ref.as_deref() == Some(CV_REF_ATTR) {
                 let empty_val = cv.value.as_deref().map_or(true, |s| s.is_empty());
                 if empty_val && !cv.name.is_empty() {
-                    cv.value = Some(mem::take(&mut cv.name));
+                    cv.value = Some(std::mem::take(&mut cv.name));
                 }
             }
         }
@@ -2192,6 +1908,7 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
 
     let ref_groups = build_ref_group_map(mzml);
     let mut id_gen = NodeIdGen::new();
+    let mut row_ids = RowIdGen::new();
 
     let spectrum_list_id: u32 = if run.spectrum_list.is_some() {
         id_gen.alloc()
@@ -2210,26 +1927,46 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
     }
 
     let mut spec_i: usize = 0;
-    let spectrum_meta = pack_meta_streaming(spectra, |meta, s| {
+    let spectrum_meta = pack_meta_streaming(&mut row_ids, spectra, |meta, s| {
         let idx = spec_i;
         spec_i += 1;
 
-        if idx == 0 {
-            if let Some(sl) = run.spectrum_list.as_ref() {
-                if spectrum_list_id != 0 {
-                    meta.push_schema_attributes(TagId::SpectrumList, spectrum_list_id, 0, sl);
-                }
-            }
+        if idx == 0 && spectrum_list_id != 0 {
+            let sl = run.spectrum_list.as_ref().unwrap();
+            meta.touch_tagged_ids(TagId::SpectrumList, spectrum_list_id, 0);
+            meta.push_schema_attributes(TagId::SpectrumList, spectrum_list_id, 0, sl);
         }
 
         let spectrum_id = id_gen.alloc();
+
+        meta.push_schema_attributes(TagId::Spectrum, spectrum_id, spectrum_list_id, s);
+
+        if s.index.is_none() {
+            meta.push_attr_usize_tagged_ids(
+                TagId::Spectrum,
+                spectrum_id,
+                spectrum_list_id,
+                ACC_ATTR_INDEX,
+                Some(idx as u32),
+            );
+        }
+
+        meta.extend_ref_group_cv_params_ids(
+            TagId::Spectrum,
+            spectrum_id,
+            spectrum_list_id,
+            &s.referenceable_param_group_refs,
+            &ref_groups,
+        );
+
+        meta.extend_tagged_ids(TagId::CvParam, spectrum_id, spectrum_list_id, &s.cv_params);
 
         flatten_spectrum_metadata_into_owned(
             meta,
             s,
             &ref_groups,
             spectrum_id,
-            0,
+            spectrum_list_id,
             &mut id_gen,
             ACC_MZ_ARRAY,
             ACC_INTENSITY_ARRAY,
@@ -2242,31 +1979,36 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
     });
 
     let mut chrom_i: usize = 0;
-    let chromatogram_meta = pack_meta_streaming(chromatograms, |meta, c| {
+    let chromatogram_meta = pack_meta_streaming(&mut row_ids, chromatograms, |meta, c| {
         let idx = chrom_i;
         chrom_i += 1;
 
-        if idx == 0 {
-            if let Some(cl) = run.chromatogram_list.as_ref() {
-                if chromatogram_list_id != 0 {
-                    meta.push_schema_attributes(
-                        TagId::ChromatogramList,
-                        chromatogram_list_id,
-                        0,
-                        cl,
-                    );
-                }
-            }
+        if idx == 0 && chromatogram_list_id != 0 {
+            let cl = run.chromatogram_list.as_ref().unwrap();
+            meta.touch_tagged_ids(TagId::ChromatogramList, chromatogram_list_id, 0);
+            meta.push_schema_attributes(TagId::ChromatogramList, chromatogram_list_id, 0, cl);
         }
 
         let chrom_id = id_gen.alloc();
+
+        meta.push_schema_attributes(TagId::Chromatogram, chrom_id, chromatogram_list_id, c);
+
+        meta.extend_ref_group_cv_params_ids(
+            TagId::Chromatogram,
+            chrom_id,
+            chromatogram_list_id,
+            &c.referenceable_param_group_refs,
+            &ref_groups,
+        );
+
+        meta.extend_tagged_ids(TagId::CvParam, chrom_id, chromatogram_list_id, &c.cv_params);
 
         flatten_chromatogram_metadata_into(
             meta,
             c,
             &ref_groups,
             chrom_id,
-            0,
+            chromatogram_list_id,
             &mut id_gen,
             ACC_TIME_ARRAY,
             ACC_INTENSITY_ARRAY,
@@ -2278,7 +2020,7 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
         fix_attr_values(meta.out);
     });
 
-    let global_meta = pack_meta_slices(&global_items, |m| {
+    let global_meta = pack_meta_slices(&mut row_ids, &global_items, |m| {
         (
             m.cvs.as_slice(),
             m.tags.as_slice(),
@@ -2286,18 +2028,6 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
             m.parents.as_slice(),
         )
     });
-
-    let spec_meta_count = spectrum_meta.ref_codes.len() as u32;
-    let spec_num_count = spectrum_meta.numeric_values.len() as u32;
-    let spec_str_count = spectrum_meta.string_offsets.len() as u32;
-
-    let chrom_meta_count = chromatogram_meta.ref_codes.len() as u32;
-    let chrom_num_count = chromatogram_meta.numeric_values.len() as u32;
-    let chrom_str_count = chromatogram_meta.string_offsets.len() as u32;
-
-    let global_meta_count = global_meta.ref_codes.len() as u32;
-    let global_num_count = global_meta.numeric_values.len() as u32;
-    let global_str_count = global_meta.string_offsets.len() as u32;
 
     let mut spectrum_meta_bytes = write_packed_meta_bytes(&spectrum_meta);
     let mut chromatogram_meta_bytes = write_packed_meta_bytes(&chromatogram_meta);
@@ -2313,118 +2043,86 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
         global_meta_bytes = compress_bytes(&global_meta_bytes, compression_level);
     }
 
-    let mut spec_entries_bytes = Vec::with_capacity(spectra.len() * 16);
+    let mut spec_entries_bytes = Vec::new();
     let mut spec_arrayrefs_bytes = Vec::new();
-
-    let mut chrom_entries_bytes = Vec::with_capacity(chromatograms.len() * 16);
-    let mut chrom_arrayrefs_bytes = Vec::new();
-
-    let mut spect_array_types: HashSet<u32> = HashSet::new();
-    let mut chrom_array_types: HashSet<u32> = HashSet::new();
-
+    let mut spect_array_types = HashSet::new();
     let mut spect_builder =
         ContainerBuilder::new(TARGET_BLOCK_UNCOMP_BYTES, compression_level, do_shuffle);
-    let mut chrom_builder =
-        ContainerBuilder::new(TARGET_BLOCK_UNCOMP_BYTES, compression_level, do_shuffle);
-
     let mut spec_a1_index: u64 = 0;
 
     for s in spectra {
         let arr_ref_start = spec_a1_index;
         let mut arr_ref_count: u64 = 0;
-
         if let Some(bal) = s.binary_data_array_list.as_ref() {
             for ba in &bal.binary_data_arrays {
-                let arr = match array_ref(ba) {
-                    Some(a) => a,
-                    None => continue,
-                };
-
-                if arr.len() == 0 {
-                    continue;
+                if let Some(arr) = array_ref(ba) {
+                    if arr.len() == 0 {
+                        continue;
+                    }
+                    let array_type = array_type_tail(ba);
+                    if array_type != 0 {
+                        spect_array_types.insert(array_type);
+                    }
+                    let writer_dtype = dtype_of(ba, arr, f32_compress);
+                    let entry_dtype = entry_dtype_from_writer_dtype(writer_dtype);
+                    let esz = dtype_elem_size(writer_dtype);
+                    let (block_id, element_off) =
+                        spect_builder.add_item_to_box(arr.len() * esz, esz, |buf| {
+                            write_array(buf, arr, writer_dtype)
+                        });
+                    write_u64_le(&mut spec_arrayrefs_bytes, element_off);
+                    write_u64_le(&mut spec_arrayrefs_bytes, arr.len() as u64);
+                    write_u32_le(&mut spec_arrayrefs_bytes, block_id);
+                    write_u32_le(&mut spec_arrayrefs_bytes, array_type);
+                    spec_arrayrefs_bytes.push(entry_dtype);
+                    spec_arrayrefs_bytes.extend_from_slice(&[0u8; 7]);
+                    spec_a1_index += 1;
+                    arr_ref_count += 1;
                 }
-
-                let array_type = array_type_tail(ba);
-                if array_type != 0 {
-                    spect_array_types.insert(array_type);
-                }
-
-                let writer_dtype = dtype_of(ba, arr, f32_compress);
-                let entry_dtype = entry_dtype_from_writer_dtype(writer_dtype);
-
-                let esz = dtype_elem_size(writer_dtype);
-                let item_bytes = arr.len() * esz;
-
-                let (block_id, element_off) =
-                    spect_builder.add_item_to_box(item_bytes, esz, |buf| {
-                        write_array(buf, arr, writer_dtype)
-                    });
-
-                let len_elements = arr.len() as u64;
-
-                write_u64_le(&mut spec_arrayrefs_bytes, element_off);
-                write_u64_le(&mut spec_arrayrefs_bytes, len_elements);
-                write_u32_le(&mut spec_arrayrefs_bytes, block_id);
-                write_u32_le(&mut spec_arrayrefs_bytes, array_type);
-                spec_arrayrefs_bytes.push(entry_dtype);
-                spec_arrayrefs_bytes.extend_from_slice(&[0u8; 7]);
-
-                spec_a1_index += 1;
-                arr_ref_count += 1;
             }
         }
-
         write_u64_le(&mut spec_entries_bytes, arr_ref_start);
         write_u64_le(&mut spec_entries_bytes, arr_ref_count);
     }
 
+    let mut chrom_entries_bytes = Vec::new();
+    let mut chrom_arrayrefs_bytes = Vec::new();
+    let mut chrom_array_types = HashSet::new();
+    let mut chrom_builder =
+        ContainerBuilder::new(TARGET_BLOCK_UNCOMP_BYTES, compression_level, do_shuffle);
     let mut chrom_b1_index: u64 = 0;
 
     for c in chromatograms {
         let arr_ref_start = chrom_b1_index;
         let mut arr_ref_count: u64 = 0;
-
         if let Some(bal) = c.binary_data_array_list.as_ref() {
             for ba in &bal.binary_data_arrays {
-                let arr = match array_ref(ba) {
-                    Some(a) => a,
-                    None => continue,
-                };
-
-                if arr.len() == 0 {
-                    continue;
+                if let Some(arr) = array_ref(ba) {
+                    if arr.len() == 0 {
+                        continue;
+                    }
+                    let array_type = array_type_tail(ba);
+                    if array_type != 0 {
+                        chrom_array_types.insert(array_type);
+                    }
+                    let writer_dtype = dtype_of(ba, arr, f32_compress);
+                    let entry_dtype = entry_dtype_from_writer_dtype(writer_dtype);
+                    let esz = dtype_elem_size(writer_dtype);
+                    let (block_id, element_off) =
+                        chrom_builder.add_item_to_box(arr.len() * esz, esz, |buf| {
+                            write_array(buf, arr, writer_dtype)
+                        });
+                    write_u64_le(&mut chrom_arrayrefs_bytes, element_off);
+                    write_u64_le(&mut chrom_arrayrefs_bytes, arr.len() as u64);
+                    write_u32_le(&mut chrom_arrayrefs_bytes, block_id);
+                    write_u32_le(&mut chrom_arrayrefs_bytes, array_type);
+                    chrom_arrayrefs_bytes.push(entry_dtype);
+                    chrom_arrayrefs_bytes.extend_from_slice(&[0u8; 7]);
+                    chrom_b1_index += 1;
+                    arr_ref_count += 1;
                 }
-
-                let array_type = array_type_tail(ba);
-                if array_type != 0 {
-                    chrom_array_types.insert(array_type);
-                }
-
-                let writer_dtype = dtype_of(ba, arr, f32_compress);
-                let entry_dtype = entry_dtype_from_writer_dtype(writer_dtype);
-
-                let esz = dtype_elem_size(writer_dtype);
-                let item_bytes = arr.len() * esz;
-
-                let (block_id, element_off) =
-                    chrom_builder.add_item_to_box(item_bytes, esz, |buf| {
-                        write_array(buf, arr, writer_dtype)
-                    });
-
-                let len_elements = arr.len() as u64;
-
-                write_u64_le(&mut chrom_arrayrefs_bytes, element_off);
-                write_u64_le(&mut chrom_arrayrefs_bytes, len_elements);
-                write_u32_le(&mut chrom_arrayrefs_bytes, block_id);
-                write_u32_le(&mut chrom_arrayrefs_bytes, array_type);
-                chrom_arrayrefs_bytes.push(entry_dtype);
-                chrom_arrayrefs_bytes.extend_from_slice(&[0u8; 7]);
-
-                chrom_b1_index += 1;
-                arr_ref_count += 1;
             }
         }
-
         write_u64_le(&mut chrom_entries_bytes, arr_ref_start);
         write_u64_le(&mut chrom_entries_bytes, arr_ref_count);
     }
@@ -2432,109 +2130,60 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
     let (container_spect, block_count_spect) = spect_builder.pack();
     let (container_chrom, block_count_chrom) = chrom_builder.pack();
 
-    let mut output = Vec::with_capacity(
-        HEADER_SIZE
-            + spec_entries_bytes.len()
-            + spec_arrayrefs_bytes.len()
-            + chrom_entries_bytes.len()
-            + chrom_arrayrefs_bytes.len()
-            + spectrum_meta_bytes.len()
-            + chromatogram_meta_bytes.len()
-            + global_meta_bytes.len()
-            + container_spect.len()
-            + container_chrom.len()
-            + 64,
-    );
-
+    let mut output =
+        Vec::with_capacity(HEADER_SIZE + container_spect.len() + container_chrom.len() + 1024);
     output.resize(HEADER_SIZE, 0);
 
     let off_spec_entries = append_aligned_8(&mut output, &spec_entries_bytes);
-    let len_spec_entries = spec_entries_bytes.len() as u64;
-
     let off_spec_arrayrefs = append_aligned_8(&mut output, &spec_arrayrefs_bytes);
-    let len_spec_arrayrefs = spec_arrayrefs_bytes.len() as u64;
-
     let off_chrom_entries = append_aligned_8(&mut output, &chrom_entries_bytes);
-    let len_chrom_entries = chrom_entries_bytes.len() as u64;
-
     let off_chrom_arrayrefs = append_aligned_8(&mut output, &chrom_arrayrefs_bytes);
-    let len_chrom_arrayrefs = chrom_arrayrefs_bytes.len() as u64;
-
     let off_spec_meta = append_aligned_8(&mut output, &spectrum_meta_bytes);
-    let len_spec_meta = spectrum_meta_bytes.len() as u64;
-
     let off_chrom_meta = append_aligned_8(&mut output, &chromatogram_meta_bytes);
-    let len_chrom_meta = chromatogram_meta_bytes.len() as u64;
-
     let off_global_meta = append_aligned_8(&mut output, &global_meta_bytes);
-    let len_global_meta = global_meta_bytes.len() as u64;
-
     let off_container_spect = append_aligned_8(&mut output, &container_spect);
-    let len_container_spect = container_spect.len() as u64;
-
     let off_container_chrom = append_aligned_8(&mut output, &container_chrom);
-    let len_container_chrom = container_chrom.len() as u64;
 
     {
         let header = &mut output[0..HEADER_SIZE];
-
         header[0..4].copy_from_slice(b"B000");
-        set_u8_at(header, 4, 0);
-
         set_u64_at(header, 8, off_spec_entries);
-        set_u64_at(header, 16, len_spec_entries);
-
+        set_u64_at(header, 16, spec_entries_bytes.len() as u64);
         set_u64_at(header, 24, off_spec_arrayrefs);
-        set_u64_at(header, 32, len_spec_arrayrefs);
-
+        set_u64_at(header, 32, spec_arrayrefs_bytes.len() as u64);
         set_u64_at(header, 40, off_chrom_entries);
-        set_u64_at(header, 48, len_chrom_entries);
-
+        set_u64_at(header, 48, chrom_entries_bytes.len() as u64);
         set_u64_at(header, 56, off_chrom_arrayrefs);
-        set_u64_at(header, 64, len_chrom_arrayrefs);
-
+        set_u64_at(header, 64, chrom_arrayrefs_bytes.len() as u64);
         set_u64_at(header, 72, off_spec_meta);
-        set_u64_at(header, 80, len_spec_meta);
-
+        set_u64_at(header, 80, spectrum_meta_bytes.len() as u64);
         set_u64_at(header, 88, off_chrom_meta);
-        set_u64_at(header, 96, len_chrom_meta);
-
+        set_u64_at(header, 96, chromatogram_meta_bytes.len() as u64);
         set_u64_at(header, 104, off_global_meta);
-        set_u64_at(header, 112, len_global_meta);
-
+        set_u64_at(header, 112, global_meta_bytes.len() as u64);
         set_u64_at(header, 120, off_container_spect);
-        set_u64_at(header, 128, len_container_spect);
-
+        set_u64_at(header, 128, container_spect.len() as u64);
         set_u64_at(header, 136, off_container_chrom);
-        set_u64_at(header, 144, len_container_chrom);
-
+        set_u64_at(header, 144, container_chrom.len() as u64);
         set_u32_at(header, 152, block_count_spect);
         set_u32_at(header, 156, block_count_chrom);
-
         set_u32_at(header, 160, spectrum_count);
         set_u32_at(header, 164, chrom_count);
-
-        set_u32_at(header, 168, spec_meta_count);
-        set_u32_at(header, 172, spec_num_count);
-        set_u32_at(header, 176, spec_str_count);
-
-        set_u32_at(header, 180, chrom_meta_count);
-        set_u32_at(header, 184, chrom_num_count);
-        set_u32_at(header, 188, chrom_str_count);
-
-        set_u32_at(header, 192, global_meta_count);
-        set_u32_at(header, 196, global_num_count);
-        set_u32_at(header, 200, global_str_count);
-
+        set_u32_at(header, 168, spectrum_meta.ref_codes.len() as u32);
+        set_u32_at(header, 172, spectrum_meta.numeric_values.len() as u32);
+        set_u32_at(header, 176, spectrum_meta.string_offsets.len() as u32);
+        set_u32_at(header, 180, chromatogram_meta.ref_codes.len() as u32);
+        set_u32_at(header, 184, chromatogram_meta.numeric_values.len() as u32);
+        set_u32_at(header, 188, chromatogram_meta.string_offsets.len() as u32);
+        set_u32_at(header, 192, global_meta.ref_codes.len() as u32);
+        set_u32_at(header, 196, global_meta.numeric_values.len() as u32);
+        set_u32_at(header, 200, global_meta.string_offsets.len() as u32);
         set_u32_at(header, 204, spect_array_types.len() as u32);
         set_u32_at(header, 208, chrom_array_types.len() as u32);
-
         set_u64_at(header, 216, TARGET_BLOCK_UNCOMP_BYTES as u64);
-
         set_u8_at(header, 224, compression_codec);
         set_u8_at(header, 225, compression_level);
         set_u8_at(header, 226, array_filter_id);
-
         set_u64_at(header, 232, size_spec_meta_uncompressed);
         set_u64_at(header, 240, size_chrom_meta_uncompressed);
         set_u64_at(header, 248, size_global_meta_uncompressed);
@@ -2542,4 +2191,251 @@ pub fn encode(mzml: &MzML, compression_level: u8, f32_compress: bool) -> Vec<u8>
 
     output.extend_from_slice(&FILE_TRAILER);
     output
+}
+
+fn flatten_spectrum_metadata_into_owned(
+    meta: &mut MetaAcc<'_>,
+    spectrum: &Spectrum,
+    ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
+    spectrum_id: u32,
+    parent_id: u32,
+    id_gen: &mut NodeIdGen,
+    x_tail: u32,
+    y_tail: u32,
+    _x_64: bool,
+    _y_64: bool,
+    f32_c: bool,
+) {
+    let _ = parent_id;
+
+    if let Some(sd) = &spectrum.spectrum_description {
+        let sd_id = id_gen.alloc();
+        meta.touch_tagged_ids(TagId::SpectrumDescription, sd_id, spectrum_id);
+
+        meta.extend_tagged_ids(TagId::CvParam, sd_id, spectrum_id, &sd.cv_params);
+
+        if let Some(sl) = &sd.scan_list {
+            let sl_id = id_gen.alloc();
+            meta.push_attr_usize_tagged_ids(
+                TagId::ScanList,
+                sl_id,
+                sd_id,
+                ACC_ATTR_COUNT,
+                Some(sl.scans.len() as u32),
+            );
+            flatten_scan_list_ids(meta, sl, sl_id, sd_id, id_gen, ref_groups);
+        }
+        if let Some(pl) = &sd.precursor_list {
+            let pl_id = id_gen.alloc();
+            meta.push_attr_usize_tagged_ids(
+                TagId::PrecursorList,
+                pl_id,
+                sd_id,
+                ACC_ATTR_COUNT,
+                Some(pl.precursors.len() as u32),
+            );
+            for p in &pl.precursors {
+                flatten_precursor_ids(meta, p, pl_id, id_gen, ref_groups);
+            }
+        }
+        if let Some(pl) = &sd.product_list {
+            let pl_id = id_gen.alloc();
+            meta.push_attr_usize_tagged_ids(
+                TagId::ProductList,
+                pl_id,
+                sd_id,
+                ACC_ATTR_COUNT,
+                Some(pl.products.len() as u32),
+            );
+            for p in &pl.products {
+                flatten_product_ids(meta, p, pl_id, id_gen, ref_groups);
+            }
+        }
+    }
+
+    if let Some(sl) = &spectrum.scan_list {
+        let sl_id = id_gen.alloc();
+        meta.push_attr_usize_tagged_ids(
+            TagId::ScanList,
+            sl_id,
+            spectrum_id,
+            ACC_ATTR_COUNT,
+            Some(sl.scans.len() as u32),
+        );
+        flatten_scan_list_ids(meta, sl, sl_id, spectrum_id, id_gen, ref_groups);
+    }
+    if let Some(pl) = &spectrum.precursor_list {
+        let pl_id = id_gen.alloc();
+        meta.push_attr_usize_tagged_ids(
+            TagId::PrecursorList,
+            pl_id,
+            spectrum_id,
+            ACC_ATTR_COUNT,
+            Some(pl.precursors.len() as u32),
+        );
+        for p in &pl.precursors {
+            flatten_precursor_ids(meta, p, pl_id, id_gen, ref_groups);
+        }
+    }
+    if let Some(pl) = &spectrum.product_list {
+        let pl_id = id_gen.alloc();
+        meta.push_attr_usize_tagged_ids(
+            TagId::ProductList,
+            pl_id,
+            spectrum_id,
+            ACC_ATTR_COUNT,
+            Some(pl.products.len() as u32),
+        );
+        for p in &pl.products {
+            flatten_product_ids(meta, p, pl_id, id_gen, ref_groups);
+        }
+    }
+
+    if let Some(bal) = &spectrum.binary_data_array_list {
+        let bal_id = id_gen.alloc();
+        meta.push_attr_usize_tagged_ids(
+            TagId::BinaryDataArrayList,
+            bal_id,
+            spectrum_id,
+            ACC_ATTR_COUNT,
+            Some(bal.binary_data_arrays.len() as u32),
+        );
+        for ba in &bal.binary_data_arrays {
+            let ba_id = id_gen.alloc();
+            meta.touch_tagged_ids(TagId::BinaryDataArray, ba_id, bal_id);
+            meta.push_schema_attributes(TagId::BinaryDataArray, ba_id, bal_id, ba);
+            extend_binary_data_array_cv_params_ids(meta, ba_id, bal_id, ba, x_tail, y_tail, f32_c);
+        }
+    }
+}
+
+fn flatten_chromatogram_metadata_into(
+    meta: &mut MetaAcc<'_>,
+    chrom: &Chromatogram,
+    ref_groups: &HashMap<&str, &ReferenceableParamGroup>,
+    chrom_id: u32,
+    parent_id: u32,
+    id_gen: &mut NodeIdGen,
+    x_tail: u32,
+    y_tail: u32,
+    _x_64: bool,
+    _y_64: bool,
+    f32_c: bool,
+) {
+    let _ = parent_id;
+
+    if let Some(p) = &chrom.precursor {
+        flatten_precursor_ids(meta, p, chrom_id, id_gen, ref_groups);
+    }
+    if let Some(p) = &chrom.product {
+        flatten_product_ids(meta, p, chrom_id, id_gen, ref_groups);
+    }
+
+    if let Some(bal) = &chrom.binary_data_array_list {
+        let bal_id = id_gen.alloc();
+        meta.push_attr_usize_tagged_ids(
+            TagId::BinaryDataArrayList,
+            bal_id,
+            chrom_id,
+            ACC_ATTR_COUNT,
+            Some(bal.binary_data_arrays.len() as u32),
+        );
+        for ba in &bal.binary_data_arrays {
+            let ba_id = id_gen.alloc();
+            meta.touch_tagged_ids(TagId::BinaryDataArray, ba_id, bal_id);
+            meta.push_schema_attributes(TagId::BinaryDataArray, ba_id, bal_id, ba);
+            extend_binary_data_array_cv_params_ids(meta, ba_id, bal_id, ba, x_tail, y_tail, f32_c);
+        }
+    }
+}
+
+fn flatten_precursor_ids(
+    meta: &mut MetaAcc<'_>,
+    p: &Precursor,
+    parent: u32,
+    id_gen: &mut NodeIdGen,
+    _groups: &HashMap<&str, &ReferenceableParamGroup>,
+) {
+    let pid = id_gen.alloc();
+    meta.touch_tagged_ids(TagId::Precursor, pid, parent);
+    meta.push_schema_attributes(TagId::Precursor, pid, parent, p);
+
+    if let Some(iw) = &p.isolation_window {
+        let id = id_gen.alloc();
+        meta.touch_tagged_ids(TagId::IsolationWindow, id, pid);
+        meta.extend_tagged_ids(TagId::CvParam, id, pid, &iw.cv_params);
+    }
+    if let Some(sil) = &p.selected_ion_list {
+        let sid = id_gen.alloc();
+        meta.push_attr_usize_tagged_ids(
+            TagId::SelectedIonList,
+            sid,
+            pid,
+            ACC_ATTR_COUNT,
+            Some(sil.selected_ions.len() as u32),
+        );
+        for ion in &sil.selected_ions {
+            let iid = id_gen.alloc();
+            meta.touch_tagged_ids(TagId::SelectedIon, iid, sid);
+            meta.push_schema_attributes(TagId::SelectedIon, iid, sid, ion);
+            meta.extend_tagged_ids(TagId::CvParam, iid, sid, &ion.cv_params);
+        }
+    }
+    if let Some(act) = &p.activation {
+        let aid = id_gen.alloc();
+        meta.touch_tagged_ids(TagId::Activation, aid, pid);
+        meta.extend_tagged_ids(TagId::CvParam, aid, pid, &act.cv_params);
+    }
+}
+
+fn flatten_product_ids(
+    meta: &mut MetaAcc<'_>,
+    p: &Product,
+    parent: u32,
+    id_gen: &mut NodeIdGen,
+    _groups: &HashMap<&str, &ReferenceableParamGroup>,
+) {
+    let pid = id_gen.alloc();
+    meta.touch_tagged_ids(TagId::Product, pid, parent);
+    meta.push_schema_attributes(TagId::Product, pid, parent, p);
+    if let Some(iw) = &p.isolation_window {
+        let id = id_gen.alloc();
+        meta.touch_tagged_ids(TagId::IsolationWindow, id, pid);
+        meta.extend_tagged_ids(TagId::CvParam, id, pid, &iw.cv_params);
+    }
+}
+
+fn flatten_scan_list_ids(
+    meta: &mut MetaAcc<'_>,
+    sl: &ScanList,
+    lid: u32,
+    lid_parent: u32,
+    id_gen: &mut NodeIdGen,
+    _groups: &HashMap<&str, &ReferenceableParamGroup>,
+) {
+    let _ = lid_parent;
+
+    for scan in &sl.scans {
+        let sid = id_gen.alloc();
+        meta.touch_tagged_ids(TagId::Scan, sid, lid);
+        meta.push_schema_attributes(TagId::Scan, sid, lid, scan);
+        meta.extend_tagged_ids(TagId::CvParam, sid, lid, &scan.cv_params);
+
+        if let Some(wl) = &scan.scan_window_list {
+            let wid = id_gen.alloc();
+            meta.push_attr_usize_tagged_ids(
+                TagId::ScanWindowList,
+                wid,
+                sid,
+                ACC_ATTR_COUNT,
+                Some(wl.scan_windows.len() as u32),
+            );
+            for w in &wl.scan_windows {
+                let id = id_gen.alloc();
+                meta.touch_tagged_ids(TagId::ScanWindow, id, wid);
+                meta.push_schema_attributes(TagId::ScanWindow, id, wid, w);
+                meta.extend_tagged_ids(TagId::CvParam, id, wid, &w.cv_params);
+            }
+        }
+    }
 }

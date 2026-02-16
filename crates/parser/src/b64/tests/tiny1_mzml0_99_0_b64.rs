@@ -17,22 +17,22 @@ const CV_REF_MODE: CvRefMode = CvRefMode::AllowMissingMs;
 fn tiny1_mzml0_99_0_header_sections() {
     let mzml = parse_b(&MZML_CACHE, PATH);
     // cvList
-    // let cv_list = mzml.cv_list.as_ref().expect("cvList parsed");
-    // assert_eq!(cv_list.cv.len(), 1);
-    // let cv0 = &cv_list.cv[0];
-    // assert!(cv0.id.is_empty() || cv0.id == "MS");
-    // assert_eq!(
-    //     cv0.full_name.as_deref(),
-    //     Some("Proteomics Standards Initiative Mass Spectrometry Ontology")
-    // );
-    // assert_eq!(cv0.version.as_deref(), Some("2.0.2"));
-    // assert_eq!(
-    //     cv0.uri.as_deref(),
-    //     Some("http://psidev.sourceforge.net/ms/xml/mzdata/psi-ms.2.0.2.obo")
-    // );
+    let cv_list = mzml.cv_list.as_ref().expect("cvList parsed");
+    assert_eq!(cv_list.cv.len(), 1);
+    let cv0 = &cv_list.cv[0];
+    assert!(cv0.id.is_empty() || cv0.id == "MS");
+    assert_eq!(
+        cv0.full_name.as_deref(),
+        Some("Proteomics Standards Initiative Mass Spectrometry Ontology")
+    );
+    assert_eq!(cv0.version.as_deref(), Some("2.0.2"));
+    assert_eq!(
+        cv0.uri.as_deref(),
+        Some("http://psidev.sourceforge.net/ms/xml/mzdata/psi-ms.2.0.2.obo")
+    );
 
     // fileDescription
-    let file_desc = &mzml.file_description;
+    let file_desc = &mzml.file_description.as_ref().unwrap();
 
     // fileContent
     assert_eq!(file_desc.file_content.cv_params.len(), 1);
@@ -604,6 +604,7 @@ fn tiny1_mzml0_99_0_spectrum_s20() {
     );
 
     // precursorList
+    // println!("---::>> spectrum: {:#?}", s1);
     let pl = spectrum_precursor_list(s1).expect("precursorList parsed");
     assert_eq!(pl.precursors.len(), 1);
     let p0 = &pl.precursors[0];

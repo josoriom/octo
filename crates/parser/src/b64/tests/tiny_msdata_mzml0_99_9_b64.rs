@@ -38,7 +38,7 @@ fn tiny_msdata_mzml0_99_9_header_sections() {
     );
 
     // fileDescription
-    let file_desc = &mzml.file_description;
+    let file_desc = &mzml.file_description.as_ref().unwrap();
 
     // fileContent
     let cv_params = &file_desc.file_content.cv_params;
@@ -279,13 +279,12 @@ fn tiny_msdata_mzml0_99_9_header_sections() {
     assert_eq!(ss_list.scan_settings.len(), 1);
 
     let acq0 = &ss_list.scan_settings[0];
+    println!("{:#?}", acq0);
     assert_eq!(acq0.id.as_deref(), Some("aS1"));
     assert_eq!(
         acq0.instrument_configuration_ref.as_deref(),
         Some("LCQDeca")
     );
-
-    println!("---::>>{:#?}", ss_list);
 
     if let Some(sfrefl) = acq0.source_file_ref_list.as_ref() {
         assert_eq!(sfrefl.source_file_refs.len(), 1);

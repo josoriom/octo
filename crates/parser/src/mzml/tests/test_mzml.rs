@@ -39,7 +39,7 @@ fn anpc_mzml1_1_0_header_sections() {
         )
     );
 
-    let file_desc = &mzml.file_description;
+    let file_desc = &mzml.file_description.as_ref().unwrap();
 
     // fileContent
     assert_eq!(file_desc.file_content.cv_params.len(), 2);
@@ -490,7 +490,7 @@ fn anpc_mzml1_1_0_last_spectrum() {
     assert_eq!(sl.spectra.len(), 2);
 
     let s_last = sl.spectra.last().expect("last spectrum");
-    assert_eq!(s_last.index, Some(3475));
+    assert_eq!(s_last.index, Some(1));
     assert_eq!(s_last.id, "scan=3476");
 
     assert_eq!(s_last.cv_params.len(), 6);
