@@ -288,6 +288,7 @@ pub struct Software {
     pub version: Option<String>,
     pub software_param: Vec<SoftwareParam>,
     pub cv_param: Vec<CvParam>,
+    pub user_params: Vec<UserParam>,
 }
 
 /// <softwareParam>

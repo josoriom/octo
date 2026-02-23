@@ -10,6 +10,7 @@ clap = { workspace = true, features = ["derive"] }
 octo = { path = "../parser" }
 regex = { workspace = true }
 rayon = { workspace = true }
+mimalloc = { version = "0.1.48", features = ["secure"] }
 
 [[bin]]
 name = "octo"

@@ -14,13 +14,17 @@ use clap::{
     builder::styling::{AnsiColor, Color, Style, Styles},
 };
 use rayon::{ThreadPoolBuilder, prelude::*};
+use mimalloc::MiMalloc;
 use regex::Regex;
 use serde::Serialize;
 
 use octo::{
-    b64::{decode, encode},
+    b64::{decoder::decode, encode},
     mzml::{bin_to_mzml::bin_to_mzml, parse_mzml::parse_mzml, structs::*},
 };
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 const VERSION: &str = "0.0.0";
 const FILE_TRAILER: [u8; 8] = *b"END\0\0\0\0\0";
@@ -229,29 +233,94 @@ fn read_mzml_or_b64(file_path: &Path) -> Result<MzML, String> {
     ))
 }
 
+#[derive(Debug, Clone)]
+enum FilterExpr {
+    Leaf(String),
+    And(Vec<FilterExpr>),
+    Or(Vec<FilterExpr>),
+}
+
+impl FilterExpr {
+    fn matches(&self, name_lower: &str) -> bool {
+        match self {
+            Self::Leaf(pat) => name_lower.contains(pat),
+            Self::And(exprs) => exprs.iter().all(|e| e.matches(name_lower)),
+            Self::Or(exprs) => exprs.iter().any(|e| e.matches(name_lower)),
+        }
+    }
+
+    fn parse(input: &str) -> Result<Self, String> {
+        let input = input.trim();
+        if input.is_empty() {
+            return Err("Filter pattern cannot be empty".to_string());
+        }
+        let or_parts: Vec<&str> = input.split('|').collect();
+        if or_parts.len() > 1 {
+            let exprs: Result<Vec<Self>, String> =
+                or_parts.into_iter().map(Self::parse_and).collect();
+            return Ok(Self::Or(exprs?));
+        }
+        Self::parse_and(input)
+    }
+
+    fn parse_and(input: &str) -> Result<Self, String> {
+        let and_parts: Vec<&str> = input.split('&').collect();
+        if and_parts.len() > 1 {
+            let exprs: Vec<Self> = and_parts
+                .into_iter()
+                .map(|s| Self::Leaf(s.trim().to_lowercase()))
+                .collect();
+            return Ok(Self::And(exprs));
+        }
+        Ok(Self::Leaf(input.trim().to_lowercase()))
+    }
+}
+
 fn build_name_filter(
     pattern: Option<&str>,
     pattern_exact: Option<&str>,
     regex: Option<&str>,
 ) -> Result<Option<Box<dyn Fn(&str) -> bool>>, String> {
-    if let Some(p) = pattern {
-        let needle = p.to_lowercase();
-        return Ok(Some(Box::new(move |name: &str| {
-            name.to_lowercase().contains(&needle)
-        })));
+    let tree = if let Some(p) = pattern {
+        Some(FilterExpr::parse(p)?)
+    } else {
+        None
+    };
+
+    let exact = pattern_exact.map(|s| s.to_string());
+
+    let re = if let Some(r) = regex {
+        Some(Regex::new(r).map_err(|e| format!("invalid regex: {e}"))?)
+    } else {
+        None
+    };
+
+    if tree.is_none() && exact.is_none() && re.is_none() {
+        return Ok(None);
     }
 
-    if let Some(p) = pattern_exact {
-        let needle = p.to_string();
-        return Ok(Some(Box::new(move |name: &str| name.contains(&needle))));
-    }
+    Ok(Some(Box::new(move |name: &str| {
+        if let Some(needle) = &exact {
+            if name.contains(needle) {
+                return true;
+            }
+        }
 
-    if let Some(r) = regex {
-        let re = Regex::new(r).map_err(|e| format!("invalid regex: {e}"))?;
-        return Ok(Some(Box::new(move |name: &str| re.is_match(name))));
-    }
+        if let Some(r) = &re {
+            if r.is_match(name) {
+                return true;
+            }
+        }
 
-    Ok(None)
+        if let Some(t) = &tree {
+            let name_lower = name.to_lowercase();
+            if t.matches(&name_lower) {
+                return true;
+            }
+        }
+
+        false
+    })))
 }
 
 fn collect_files_with_exts(
@@ -464,7 +533,12 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                     }
                 };
 
+                let in_mb = bytes.len() as f64 / MB;
+                drop(bytes);
+
                 let encoded = encode(&mzml, cmd.compression_level, f32_compress);
+
+                drop(mzml);
 
                 if let Err(e) = fs::write(&out_path, &encoded) {
                     had_failed.store(true, Ordering::Relaxed);
@@ -480,6 +554,9 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                     return;
                 }
 
+                let out_mb = encoded.len() as f64 / MB;
+                drop(encoded);
+
                 ok.fetch_add(1, Ordering::Relaxed);
                 if rewrote_bad {
                     rewrote_bad_total.fetch_add(1, Ordering::Relaxed);
@@ -487,9 +564,7 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                 let n = done.fetch_add(1, Ordering::Relaxed) + 1;
 
                 let elapsed_s = t0.elapsed().as_secs_f64();
-                let in_mb = bytes.len() as f64 / MB;
-                let out_mb = encoded.len() as f64 / MB;
-
+                
                 let (tag, color) = if rewrote_bad {
                     ("[rewrote]", ANSI_BLUE)
                 } else {
@@ -648,6 +723,8 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                         return;
                     }
                 };
+                let in_mb = in_bytes.len() as f64 / MB;
+                drop(in_bytes);
 
                 let xml = match bin_to_mzml(&mzml) {
                     Ok(v) => v,
@@ -665,6 +742,7 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                         return;
                     }
                 };
+                drop(mzml);
 
                 if let Err(e) = fs::write(&out_path, xml.as_bytes()) {
                     had_failed.store(true, Ordering::Relaxed);
@@ -679,13 +757,13 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                     let _ = stderr().flush();
                     return;
                 }
+                let out_mb = xml.len() as f64 / MB;
+                drop(xml);
 
                 ok.fetch_add(1, Ordering::Relaxed);
                 let n = done.fetch_add(1, Ordering::Relaxed) + 1;
 
                 let elapsed_s = t0.elapsed().as_secs_f64();
-                let in_mb = in_bytes.len() as f64 / MB;
-                let out_mb = xml.len() as f64 / MB;
 
                 let name = basename(&out_path);
 

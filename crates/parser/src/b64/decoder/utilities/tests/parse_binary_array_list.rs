@@ -1,0 +1,868 @@
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::PathBuf,
+};
+
+use crate::{
+    CvParam,
+    b64::{
+        decoder::decode::Metadatum,
+        utilities::{
+            children_lookup::{ChildrenLookup, OwnerRows},
+            parse_binary_data_array_list, parse_header, parse_metadata,
+        },
+    },
+    mzml::schema::TagId,
+};
+
+const PATH: &str = "data/b64/test.b64";
+
+fn read_bytes(path: &str) -> Vec<u8> {
+    let full = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(path);
+    fs::read(&full).unwrap_or_else(|e| panic!("cannot read {:?}: {}", full, e))
+}
+
+fn parse_metadata_section_from_test_file(
+    start_off: u64,
+    end_off: u64,
+    item_count: u32,
+    expected_item_count: u32,
+    meta_count: u32,
+    num_count: u32,
+    str_count: u32,
+    codec_id: u8,
+    expected_uncompressed: u64,
+    section_name: &str,
+) -> Vec<Metadatum> {
+    let bytes = read_bytes(PATH);
+
+    let c0 = usize::try_from(start_off)
+        .unwrap_or_else(|_| panic!("invalid metadata offsets for {section_name}: start overflow"));
+    let c1 = usize::try_from(end_off)
+        .unwrap_or_else(|_| panic!("invalid metadata offsets for {section_name}: end overflow"));
+
+    assert!(
+        c0 < c1,
+        "invalid metadata offsets for {section_name}: start >= end"
+    );
+    assert!(
+        c1 <= bytes.len(),
+        "invalid metadata offsets for {section_name}: end out of bounds"
+    );
+
+    assert_eq!(
+        item_count, expected_item_count,
+        "test.b64 should contain {expected_item_count} {section_name} items"
+    );
+
+    let slice = &bytes[c0..c1];
+
+    let expected = usize::try_from(expected_uncompressed)
+        .unwrap_or_else(|_| panic!("{section_name}: expected_uncompressed overflow"));
+
+    parse_metadata(
+        slice, item_count, meta_count, num_count, str_count, codec_id, expected,
+    )
+    .unwrap_or_else(|e| panic!("{section_name}: parse_metadata failed: {e}"))
+}
+
+fn assert_cv_param(
+    p: &CvParam,
+    cv_ref: Option<&str>,
+    accession: Option<&str>,
+    name: &str,
+    value: Option<&str>,
+    unit_cv_ref: Option<&str>,
+    unit_name: Option<&str>,
+    unit_accession: Option<&str>,
+) {
+    assert_eq!(p.cv_ref.as_deref(), cv_ref);
+    assert_eq!(p.accession.as_deref(), accession);
+    assert_eq!(p.name.as_str(), name);
+    assert_eq!(p.value.as_deref(), value);
+    assert_eq!(p.unit_cv_ref.as_deref(), unit_cv_ref);
+    assert_eq!(p.unit_name.as_deref(), unit_name);
+    assert_eq!(p.unit_accession.as_deref(), unit_accession);
+}
+
+#[test]
+fn first_chrom_cv_params_item_by_item() {
+    let bytes = read_bytes(PATH);
+    let header = parse_header(&bytes).expect("parse_header failed");
+
+    let metadata_section = parse_metadata_section_from_test_file(
+        header.off_chrom_meta,
+        header.off_global_meta,
+        header.chrom_count,
+        2,
+        header.chrom_meta_count,
+        header.chrom_meta_num_count,
+        header.chrom_meta_str_count,
+        header.compression_codec,
+        header.chrom_meta_uncompressed_bytes,
+        "chromatograms",
+    );
+
+    let mut rows_by_id = OwnerRows::with_capacity(metadata_section.len());
+    for metadatum in &metadata_section {
+        rows_by_id.insert(metadatum.id, metadatum);
+    }
+
+    let mut binary_data_arrays_by_parent: std::collections::HashMap<
+        u32,
+        std::collections::HashSet<u32>,
+    > = std::collections::HashMap::new();
+
+    for metadatum in &metadata_section {
+        if metadatum.tag_id == TagId::BinaryDataArray {
+            binary_data_arrays_by_parent
+                .entry(metadatum.parent_id)
+                .or_default()
+                .insert(metadatum.id);
+        }
+    }
+
+    let mut parent_ids: Vec<u32> = binary_data_arrays_by_parent
+        .iter()
+        .filter(|(_, array_ids)| array_ids.len() == 3)
+        .map(|(parent_id, _)| *parent_id)
+        .collect();
+
+    parent_ids.sort_unstable();
+    let target_parent_id = parent_ids[0];
+
+    let children_lookup = ChildrenLookup::new(&metadata_section);
+
+    let binary_data_array_list =
+        parse_binary_data_array_list(&rows_by_id, &children_lookup, target_parent_id)
+            .expect("parse_binary_data_array_list returned None");
+
+    assert_eq!(binary_data_array_list.count, Some(3));
+    assert_eq!(binary_data_array_list.binary_data_arrays.len(), 3);
+
+    for bda in &binary_data_array_list.binary_data_arrays {
+        let accs: HashSet<&str> = bda
+            .cv_params
+            .iter()
+            .filter_map(|p| p.accession.as_deref())
+            .collect();
+
+        if accs.contains("MS:1000595") {
+            let exp: HashSet<&str> = ["MS:1000523", "MS:1000576", "MS:1000595"]
+                .into_iter()
+                .collect();
+            assert_eq!(accs, exp);
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000523"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000523"),
+                "64-bit float",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000576"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000576"),
+                "no compression",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000595"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000595"),
+                "time array",
+                None,
+                Some("UO"),
+                Some("second"),
+                Some("UO:0000010"),
+            );
+        } else if accs.contains("MS:1000786") {
+            let exp: HashSet<&str> = ["MS:1000522", "MS:1000576", "MS:1000786"]
+                .into_iter()
+                .collect();
+            assert_eq!(accs, exp);
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000522"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000522"),
+                "64-bit integer",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000576"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000576"),
+                "no compression",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000786"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000786"),
+                "non-standard data array",
+                Some("ms level"),
+                Some("UO"),
+                Some("dimensionless unit"),
+                Some("UO:0000186"),
+            );
+        } else {
+            let exp: HashSet<&str> = ["MS:1000521", "MS:1000576", "MS:1000515"]
+                .into_iter()
+                .collect();
+            assert_eq!(accs, exp);
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000521"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000521"),
+                "32-bit float",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000576"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000576"),
+                "no compression",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000515"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000515"),
+                "intensity array",
+                None,
+                Some("MS"),
+                Some("number of detector counts"),
+                Some("MS:1000131"),
+            );
+        }
+    }
+}
+
+#[test]
+fn second_chrom_cv_params_item_by_item() {
+    let bytes = read_bytes(PATH);
+    let header = parse_header(&bytes).expect("parse_header failed");
+
+    let metadata_section = parse_metadata_section_from_test_file(
+        header.off_chrom_meta,
+        header.off_global_meta,
+        header.chrom_count,
+        2,
+        header.chrom_meta_count,
+        header.chrom_meta_num_count,
+        header.chrom_meta_str_count,
+        header.compression_codec,
+        header.chrom_meta_uncompressed_bytes,
+        "chromatograms",
+    );
+
+    let mut rows_by_id = OwnerRows::with_capacity(metadata_section.len());
+    for metadatum in &metadata_section {
+        rows_by_id.insert(metadatum.id, metadatum);
+    }
+
+    let mut binary_data_arrays_by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
+
+    for metadatum in &metadata_section {
+        if metadatum.tag_id == TagId::BinaryDataArray {
+            binary_data_arrays_by_parent
+                .entry(metadatum.parent_id)
+                .or_default()
+                .insert(metadatum.id);
+        }
+    }
+
+    let mut parent_ids: Vec<u32> = binary_data_arrays_by_parent
+        .iter()
+        .filter(|(_, array_ids)| array_ids.len() == 3)
+        .map(|(parent_id, _)| *parent_id)
+        .collect();
+
+    parent_ids.sort_unstable();
+    let target_parent_id = parent_ids[parent_ids.len() - 1];
+
+    let children_lookup = ChildrenLookup::new(&metadata_section);
+
+    let binary_data_array_list =
+        parse_binary_data_array_list(&rows_by_id, &children_lookup, target_parent_id).unwrap();
+    assert_eq!(binary_data_array_list.count, Some(3));
+    assert_eq!(binary_data_array_list.binary_data_arrays.len(), 3);
+
+    for bda in &binary_data_array_list.binary_data_arrays {
+        let accs: HashSet<&str> = bda
+            .cv_params
+            .iter()
+            .filter_map(|p| p.accession.as_deref())
+            .collect();
+
+        if accs.contains("MS:1000595") {
+            let exp: HashSet<&str> = ["MS:1000523", "MS:1000576", "MS:1000595"]
+                .into_iter()
+                .collect();
+            assert_eq!(accs, exp);
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000523"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000523"),
+                "64-bit float",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000576"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000576"),
+                "no compression",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000595"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000595"),
+                "time array",
+                None,
+                Some("UO"),
+                Some("second"),
+                Some("UO:0000010"),
+            );
+        } else if accs.contains("MS:1000786") {
+            let exp: HashSet<&str> = ["MS:1000522", "MS:1000576", "MS:1000786"]
+                .into_iter()
+                .collect();
+            assert_eq!(accs, exp);
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000522"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000522"),
+                "64-bit integer",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000576"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000576"),
+                "no compression",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000786"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000786"),
+                "non-standard data array",
+                Some("ms level"),
+                Some("UO"),
+                Some("dimensionless unit"),
+                Some("UO:0000186"),
+            );
+        } else {
+            let exp: HashSet<&str> = ["MS:1000521", "MS:1000576", "MS:1000515"]
+                .into_iter()
+                .collect();
+            assert_eq!(accs, exp);
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000521"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000521"),
+                "32-bit float",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000576"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000576"),
+                "no compression",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000515"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000515"),
+                "intensity array",
+                None,
+                Some("MS"),
+                Some("number of detector counts"),
+                Some("MS:1000131"),
+            );
+        }
+    }
+}
+
+#[test]
+fn first_spectrum_cv_params_item_by_item() {
+    let bytes = read_bytes(PATH);
+    let header = parse_header(&bytes).expect("parse_header failed");
+
+    let metadata_section = parse_metadata_section_from_test_file(
+        header.off_spec_meta,
+        header.off_chrom_meta,
+        header.spectrum_count,
+        2,
+        header.spec_meta_count,
+        header.spec_meta_num_count,
+        header.spec_meta_str_count,
+        header.compression_codec,
+        header.spec_meta_uncompressed_bytes,
+        "spectra",
+    );
+
+    let mut rows_by_id = OwnerRows::with_capacity(metadata_section.len());
+    for metadatum in &metadata_section {
+        rows_by_id.insert(metadatum.id, metadatum);
+    }
+
+    let mut binary_data_arrays_by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
+
+    for metadatum in &metadata_section {
+        if metadatum.tag_id == TagId::BinaryDataArray {
+            binary_data_arrays_by_parent
+                .entry(metadatum.parent_id)
+                .or_default()
+                .insert(metadatum.id);
+        }
+    }
+
+    let mut parent_ids: Vec<u32> = binary_data_arrays_by_parent
+        .iter()
+        .filter(|(_, array_ids)| array_ids.len() == 2)
+        .map(|(parent_id, _)| *parent_id)
+        .collect();
+
+    parent_ids.sort_unstable();
+    let target_parent_id = parent_ids[0];
+
+    let children_lookup = ChildrenLookup::new(&metadata_section);
+
+    let binary_data_array_list =
+        parse_binary_data_array_list(&rows_by_id, &children_lookup, target_parent_id).unwrap();
+
+    assert_eq!(binary_data_array_list.count, Some(2));
+    assert_eq!(binary_data_array_list.binary_data_arrays.len(), 2);
+
+    for bda in &binary_data_array_list.binary_data_arrays {
+        let accs: HashSet<&str> = bda
+            .cv_params
+            .iter()
+            .filter_map(|p| p.accession.as_deref())
+            .collect();
+
+        if accs.contains("MS:1000514") {
+            let exp: HashSet<&str> = ["MS:1000523", "MS:1000576", "MS:1000514"]
+                .into_iter()
+                .collect();
+            assert_eq!(accs, exp);
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000523"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000523"),
+                "64-bit float",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000576"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000576"),
+                "no compression",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000514"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000514"),
+                "m/z array",
+                None,
+                Some("MS"),
+                Some("m/z"),
+                Some("MS:1000040"),
+            );
+        } else {
+            let exp: HashSet<&str> = ["MS:1000521", "MS:1000576", "MS:1000515"]
+                .into_iter()
+                .collect();
+            assert_eq!(accs, exp);
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000521"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000521"),
+                "32-bit float",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000576"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000576"),
+                "no compression",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000515"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000515"),
+                "intensity array",
+                None,
+                Some("MS"),
+                Some("number of detector counts"),
+                Some("MS:1000131"),
+            );
+        }
+    }
+}
+
+#[test]
+fn second_spectrum_cv_params_item_by_item() {
+    let bytes = read_bytes(PATH);
+    let header = parse_header(&bytes).expect("parse_header failed");
+
+    let metadata_section = parse_metadata_section_from_test_file(
+        header.off_spec_meta,
+        header.off_chrom_meta,
+        header.spectrum_count,
+        2,
+        header.spec_meta_count,
+        header.spec_meta_num_count,
+        header.spec_meta_str_count,
+        header.compression_codec,
+        header.spec_meta_uncompressed_bytes,
+        "spectra",
+    );
+
+    let mut rows_by_id = OwnerRows::with_capacity(metadata_section.len());
+    for metadatum in &metadata_section {
+        rows_by_id.insert(metadatum.id, metadatum);
+    }
+
+    let mut binary_data_arrays_by_parent: HashMap<u32, HashSet<u32>> = HashMap::new();
+
+    for metadatum in &metadata_section {
+        if metadatum.tag_id == TagId::BinaryDataArray {
+            binary_data_arrays_by_parent
+                .entry(metadatum.parent_id)
+                .or_default()
+                .insert(metadatum.id);
+        }
+    }
+
+    let mut parent_ids: Vec<u32> = binary_data_arrays_by_parent
+        .iter()
+        .filter(|(_, array_ids)| array_ids.len() == 2)
+        .map(|(parent_id, _)| *parent_id)
+        .collect();
+
+    parent_ids.sort_unstable();
+    let target_parent_id = parent_ids[parent_ids.len() - 1];
+
+    let children_lookup = ChildrenLookup::new(&metadata_section);
+
+    let binary_data_array_list =
+        parse_binary_data_array_list(&rows_by_id, &children_lookup, target_parent_id).unwrap();
+
+    assert_eq!(binary_data_array_list.count, Some(2));
+    assert_eq!(binary_data_array_list.binary_data_arrays.len(), 2);
+
+    for bda in &binary_data_array_list.binary_data_arrays {
+        let accs: HashSet<&str> = bda
+            .cv_params
+            .iter()
+            .filter_map(|p| p.accession.as_deref())
+            .collect();
+
+        if accs.contains("MS:1000514") {
+            let exp: HashSet<&str> = ["MS:1000523", "MS:1000576", "MS:1000514"]
+                .into_iter()
+                .collect();
+            assert_eq!(accs, exp);
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000523"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000523"),
+                "64-bit float",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000576"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000576"),
+                "no compression",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000514"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000514"),
+                "m/z array",
+                None,
+                Some("MS"),
+                Some("m/z"),
+                Some("MS:1000040"),
+            );
+        } else {
+            let exp: HashSet<&str> = ["MS:1000521", "MS:1000576", "MS:1000515"]
+                .into_iter()
+                .collect();
+            assert_eq!(accs, exp);
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000521"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000521"),
+                "32-bit float",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000576"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000576"),
+                "no compression",
+                None,
+                None,
+                None,
+                None,
+            );
+
+            let p = bda
+                .cv_params
+                .iter()
+                .find(|p| p.accession.as_deref() == Some("MS:1000515"))
+                .unwrap();
+            assert_cv_param(
+                p,
+                Some("MS"),
+                Some("MS:1000515"),
+                "intensity array",
+                None,
+                Some("MS"),
+                Some("number of detector counts"),
+                Some("MS:1000131"),
+            );
+        }
+    }
+}

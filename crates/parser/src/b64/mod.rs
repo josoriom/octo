@@ -1,8 +1,4 @@
-pub mod decode;
-pub use decode::decode;
-pub mod encode;
-pub use encode::encode;
-pub mod utilities;
-
-#[cfg(test)]
-mod tests;
+pub mod decoder;
+pub use decoder::{decode::decode, utilities};
+pub mod encoder;
+pub use encoder::encode::encode;
