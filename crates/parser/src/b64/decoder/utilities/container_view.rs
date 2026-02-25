@@ -4,13 +4,13 @@ use crate::b64::utilities::container_builder::{
 };
 use std::ops::Deref;
 
-pub trait BlockProcessor {
+pub(crate) trait BlockProcessor {
     fn decompress(&self, source: &[u8], target_len: usize) -> Result<Vec<u8>, String>;
     fn unshuffle(&self, source: &[u8], target: &mut [u8], stride: usize);
     fn requires_unshuffle(&self, filter: FilterType) -> bool;
 }
 
-pub struct DefaultProcessor;
+pub(crate) struct DefaultProcessor;
 
 impl BlockProcessor for DefaultProcessor {
     #[inline]
@@ -29,7 +29,7 @@ impl BlockProcessor for DefaultProcessor {
     }
 }
 
-pub enum BlockData<'a> {
+pub(crate) enum BlockData<'a> {
     Borrowed(&'a [u8]),
     Owned(Vec<u8>),
 }
@@ -46,7 +46,7 @@ impl<'a> Deref for BlockData<'a> {
     }
 }
 
-pub struct ContainerView<'a, P: BlockProcessor> {
+pub(crate) struct ContainerView<'a, P: BlockProcessor> {
     raw_data: &'a [u8],
     header_size: usize,
     entries: Vec<BlockDirEntry>,
@@ -59,7 +59,7 @@ pub struct ContainerView<'a, P: BlockProcessor> {
 }
 
 impl<'a, P: BlockProcessor> ContainerView<'a, P> {
-    pub fn new(
+    pub(crate) fn new(
         raw_data: &'a [u8],
         block_count: u32,
         compression_level: u8,
@@ -110,22 +110,7 @@ impl<'a, P: BlockProcessor> ContainerView<'a, P> {
     }
 
     #[inline]
-    pub fn block_count(&self) -> usize {
-        self.entries.len()
-    }
-
-    #[inline]
-    pub fn filter(&self) -> FilterType {
-        self.filter
-    }
-
-    #[inline]
-    pub fn compression_level(&self) -> u8 {
-        self.compression_level
-    }
-
-    #[inline]
-    pub fn get_item_from_block(
+    pub(crate) fn get_item_from_block(
         &mut self,
         block_id: u32,
         element_offset: u64,
@@ -147,7 +132,7 @@ impl<'a, P: BlockProcessor> ContainerView<'a, P> {
         Ok(&block[start_byte..end_byte])
     }
 
-    pub fn ensure_block_loaded(
+    pub(crate) fn ensure_block_loaded(
         &mut self,
         block_id: u32,
         stride_size: usize,

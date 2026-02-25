@@ -1,21 +1,21 @@
 use crate::{
     Activation, IsolationWindow, Precursor, PrecursorList, SelectedIon, SelectedIonList,
-    b64::utilities::{
-        children_lookup::{ChildrenLookup, DefaultMetadataPolicy, OwnerRows},
-        common::get_attr_text,
-        parse_cv_and_user_params,
-    },
-    decoder::decode::Metadatum,
-    mzml::{
+    b64::{
         attr_meta::{
             ACC_ATTR_EXTERNAL_SPECTRUM_ID, ACC_ATTR_SOURCE_FILE_REF, ACC_ATTR_SPECTRUM_REF,
         },
-        schema::TagId,
+        utilities::{
+            children_lookup::{ChildrenLookup, DefaultMetadataPolicy, OwnerRows},
+            common::get_attr_text,
+            parse_cv_and_user_params,
+        },
     },
+    decoder::decode::Metadatum,
+    mzml::schema::TagId,
 };
 
 #[inline]
-pub fn parse_precursor_list<'a>(
+pub(crate) fn parse_precursor_list<'a>(
     owner_rows: &'a OwnerRows<'a>,
     children_lookup: &ChildrenLookup,
     spectrum_id: u32,

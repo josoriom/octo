@@ -1,19 +1,21 @@
 use crate::{
-    b64::utilities::{
-        children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
-        common::get_attr_text,
-        parse_cv_and_user_params,
+    b64::{
+        attr_meta::{ACC_ATTR_COUNT, ACC_ATTR_ID},
+        utilities::{
+            children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
+            common::get_attr_text,
+            parse_cv_and_user_params,
+        },
     },
     decoder::decode::Metadatum,
     mzml::{
-        attr_meta::{ACC_ATTR_COUNT, ACC_ATTR_ID},
         schema::TagId,
         structs::{ReferenceableParamGroup, ReferenceableParamGroupList},
     },
 };
 
 #[inline]
-pub fn parse_referenceable_param_group_list<P: MetadataPolicy>(
+pub(crate) fn parse_referenceable_param_group_list<P: MetadataPolicy>(
     metadata: &[&Metadatum],
     children_lookup: &ChildrenLookup,
     policy: &P,

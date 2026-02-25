@@ -1,18 +1,18 @@
 use crate::{
-    b64::utilities::common::*,
+    b64::{attr_meta::format_accession, utilities::common::*},
     decoder::{
         decode::{Metadatum, MetadatumValue},
         utilities::common::{
             decompress_zstd_allow_aligned_padding, read_u32_vec, take, vs_len_bytes,
         },
     },
-    mzml::{attr_meta::format_accession, schema::TagId},
+    mzml::schema::TagId,
 };
 
-pub const HDR_CODEC_NONE: u8 = 0;
-pub const HDR_CODEC_ZSTD: u8 = 1;
+pub(crate) const HDR_CODEC_NONE: u8 = 0;
+pub(crate) const HDR_CODEC_ZSTD: u8 = 1;
 
-pub fn parse_metadata(
+pub(crate) fn parse_metadata(
     bytes: &[u8],
     item_count: u32,
     meta_count: u32,

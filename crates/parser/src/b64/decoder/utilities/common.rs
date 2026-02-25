@@ -6,11 +6,11 @@ use crate::{
     mzml::schema::{SchemaNode, SchemaTree as Schema, TagId},
 };
 
-pub const ACC_Y_INTENSITY: &str = "MS:1000515";
-pub const ACC_Y_SNR: &str = "MS:1000786";
+pub(crate) const ACC_Y_INTENSITY: &str = "MS:1000515";
+pub(crate) const ACC_Y_SNR: &str = "MS:1000786";
 
 #[inline]
-pub fn take<'a>(
+pub(crate) fn take<'a>(
     bytes: &'a [u8],
     pos: &mut usize,
     n: usize,
@@ -33,7 +33,7 @@ pub fn take<'a>(
 }
 
 #[inline]
-pub fn read_u32_vec(bytes: &[u8], pos: &mut usize, n: usize) -> Result<Vec<u32>, String> {
+pub(crate) fn read_u32_vec(bytes: &[u8], pos: &mut usize, n: usize) -> Result<Vec<u32>, String> {
     let raw = take(bytes, pos, n * 4, "u32 vector")?;
     let mut out = Vec::with_capacity(n);
     for chunk in raw.chunks_exact(4) {
@@ -43,7 +43,7 @@ pub fn read_u32_vec(bytes: &[u8], pos: &mut usize, n: usize) -> Result<Vec<u32>,
 }
 
 #[inline]
-pub fn read_f64_vec(bytes: &[u8], pos: &mut usize, n: usize) -> Result<Vec<f64>, String> {
+pub(crate) fn read_f64_vec(bytes: &[u8], pos: &mut usize, n: usize) -> Result<Vec<f64>, String> {
     let raw = take(bytes, pos, n * 8, "f64 vector")?;
     let mut out = Vec::with_capacity(n);
     for chunk in raw.chunks_exact(8) {
@@ -55,7 +55,12 @@ pub fn read_f64_vec(bytes: &[u8], pos: &mut usize, n: usize) -> Result<Vec<f64>,
 }
 
 #[inline]
-pub fn vs_len_bytes(vk: &[u8], vi: &[u32], voff: &[u32], vlen: &[u32]) -> Result<usize, String> {
+pub(crate) fn vs_len_bytes(
+    vk: &[u8],
+    vi: &[u32],
+    voff: &[u32],
+    vlen: &[u32],
+) -> Result<usize, String> {
     let mut max_end = 0usize;
 
     for (j, &kind) in vk.iter().enumerate() {
@@ -81,7 +86,7 @@ pub fn vs_len_bytes(vk: &[u8], vi: &[u32], voff: &[u32], vlen: &[u32]) -> Result
 }
 
 #[inline]
-pub fn decompress_zstd_allow_aligned_padding(
+pub(crate) fn decompress_zstd_allow_aligned_padding(
     input: &[u8],
     expected: usize,
 ) -> Result<Vec<u8>, String> {
@@ -117,7 +122,7 @@ pub fn decompress_zstd_allow_aligned_padding(
 }
 
 #[inline]
-pub fn decompress_zstd(comp: &[u8], expected: usize) -> Result<Vec<u8>, String> {
+pub(crate) fn decompress_zstd(comp: &[u8], expected: usize) -> Result<Vec<u8>, String> {
     if expected == 0 {
         return Ok(Vec::new());
     }
@@ -141,7 +146,7 @@ pub fn decompress_zstd(comp: &[u8], expected: usize) -> Result<Vec<u8>, String> 
 }
 
 #[inline]
-pub fn value_to_opt_string(v: &MetadatumValue) -> Option<String> {
+pub(crate) fn value_to_opt_string(v: &MetadatumValue) -> Option<String> {
     match v {
         MetadatumValue::Number(x) => Some(x.to_string()),
         MetadatumValue::Text(s) => Some(s.clone()),
@@ -150,19 +155,19 @@ pub fn value_to_opt_string(v: &MetadatumValue) -> Option<String> {
 }
 
 #[inline]
-pub fn is_cv_prefix(p: &str) -> bool {
+pub(crate) fn is_cv_prefix(p: &str) -> bool {
     matches!(p, "MS" | "UO" | "NCIT" | "PEFF")
 }
 
 #[inline]
-pub fn unit_cv_ref(unit_accession: Option<&str>) -> Option<String> {
+pub(crate) fn unit_cv_ref(unit_accession: Option<&str>) -> Option<String> {
     unit_accession
         .and_then(|ua| ua.split_once(':'))
         .map(|(pref, _)| pref.to_owned())
 }
 
 #[inline]
-pub fn get_attr_u32(rows: &[&Metadatum], accession_tail: u32) -> Option<u32> {
+pub(crate) fn get_attr_u32(rows: &[&Metadatum], accession_tail: u32) -> Option<u32> {
     for m in rows {
         if let Some(acc) = m.accession.as_deref() {
             if parse_accession_tail(Some(acc)) == accession_tail {
@@ -184,7 +189,7 @@ pub fn get_attr_u32(rows: &[&Metadatum], accession_tail: u32) -> Option<u32> {
 }
 
 #[inline]
-pub fn get_attr_text(rows: &[&Metadatum], accession_tail: u32) -> Option<String> {
+pub(crate) fn get_attr_text(rows: &[&Metadatum], accession_tail: u32) -> Option<String> {
     for m in rows {
         if let Some(acc) = m.accession.as_deref() {
             if parse_accession_tail(Some(acc)) == accession_tail {
@@ -200,12 +205,7 @@ pub fn get_attr_text(rows: &[&Metadatum], accession_tail: u32) -> Option<String>
 }
 
 #[inline]
-pub fn split_prefix(acc: &str) -> Option<(&str, &str)> {
-    acc.split_once(':')
-}
-
-#[inline]
-pub fn parse_accession_tail_str(acc: &str) -> u32 {
+pub(crate) fn parse_accession_tail_str(acc: &str) -> u32 {
     let tail = match acc.rsplit_once(':') {
         Some((_, t)) => t,
         None => acc,
@@ -229,7 +229,9 @@ pub fn parse_accession_tail_str(acc: &str) -> u32 {
 }
 
 #[inline]
-pub fn xy_lengths_from_bdal(list: Option<&BinaryDataArrayList>) -> (Option<usize>, Option<usize>) {
+pub(crate) fn xy_lengths_from_bdal(
+    list: Option<&BinaryDataArrayList>,
+) -> (Option<usize>, Option<usize>) {
     let Some(list) = list else {
         return (None, None);
     };
@@ -260,7 +262,7 @@ pub fn xy_lengths_from_bdal(list: Option<&BinaryDataArrayList>) -> (Option<usize
 }
 
 #[inline]
-pub fn decoded_len(bda: &BinaryDataArray) -> usize {
+pub(crate) fn decoded_len(bda: &BinaryDataArray) -> usize {
     match bda.binary.as_ref() {
         None => 0,
         Some(bin) => match bin {
@@ -275,7 +277,7 @@ pub fn decoded_len(bda: &BinaryDataArray) -> usize {
 }
 
 #[inline]
-pub fn is_y_array(bda: &BinaryDataArray) -> bool {
+pub(crate) fn is_y_array(bda: &BinaryDataArray) -> bool {
     bda.cv_params.iter().any(|p| {
         matches!(
             p.accession.as_deref(),
@@ -284,8 +286,9 @@ pub fn is_y_array(bda: &BinaryDataArray) -> bool {
     })
 }
 
+#[allow(dead_code)]
 #[inline]
-pub fn find_node_by_tag<'a>(schema: &'a Schema, tag: TagId) -> Option<&'a SchemaNode> {
+pub(crate) fn find_node_by_tag<'a>(schema: &'a Schema, tag: TagId) -> Option<&'a SchemaNode> {
     if let Some(n) = schema.root_by_tag(tag) {
         return Some(n);
     }
@@ -308,46 +311,7 @@ pub fn find_node_by_tag<'a>(schema: &'a Schema, tag: TagId) -> Option<&'a Schema
 }
 
 #[inline]
-pub fn value_as_u32(v: &MetadatumValue) -> Option<u32> {
-    match v {
-        MetadatumValue::Text(s) => s.parse::<u32>().ok(),
-        MetadatumValue::Number(n) => {
-            if !n.is_finite() || *n < 0.0 {
-                return None;
-            }
-            if n.fract() != 0.0 {
-                return None;
-            }
-            if *n > (u32::MAX as f64) {
-                return None;
-            }
-            Some(*n as u32)
-        }
-        MetadatumValue::Empty => None,
-    }
-}
-
-#[inline]
-pub fn b000_attr_text(rows: &[&Metadatum], accession_tail: u32) -> Option<String> {
-    for m in rows {
-        let acc = m.accession.as_deref()?;
-        if !acc.starts_with("B000:") {
-            continue;
-        }
-        if parse_accession_tail(Some(acc)) != accession_tail {
-            continue;
-        }
-        return match &m.value {
-            MetadatumValue::Text(s) => Some(s.clone()),
-            MetadatumValue::Number(n) => Some(n.to_string()),
-            _ => None,
-        };
-    }
-    None
-}
-
-#[inline]
-pub fn parse_accession_tail(accession: Option<&str>) -> u32 {
+pub(crate) fn parse_accession_tail(accession: Option<&str>) -> u32 {
     let s = accession.unwrap_or("");
     let tail = match s.rsplit_once(':') {
         Some((_, t)) => t,
@@ -372,13 +336,21 @@ pub fn parse_accession_tail(accession: Option<&str>) -> u32 {
 }
 
 #[inline]
-pub fn read_u32_le_at(bytes: &[u8], pos: &mut usize, field: &'static str) -> Result<u32, String> {
+pub(crate) fn read_u32_le_at(
+    bytes: &[u8],
+    pos: &mut usize,
+    field: &'static str,
+) -> Result<u32, String> {
     let s = take(bytes, pos, 4, field)?;
     Ok(u32::from_le_bytes(s.try_into().unwrap()))
 }
 
 #[inline]
-pub fn read_u64_le_at(bytes: &[u8], pos: &mut usize, field: &'static str) -> Result<u64, String> {
+pub(crate) fn read_u64_le_at(
+    bytes: &[u8],
+    pos: &mut usize,
+    field: &'static str,
+) -> Result<u64, String> {
     let s = take(bytes, pos, 8, field)?;
     Ok(u64::from_le_bytes(s.try_into().unwrap()))
 }

@@ -29,9 +29,9 @@ fn check_header() {
     assert_eq!(header.chrom_meta_num_count, 15);
     assert_eq!(header.chrom_meta_str_count, 5);
 
-    assert_eq!(header.global_meta_count, 69);
+    assert_eq!(header.global_meta_count, 70);
     assert_eq!(header.global_meta_num_count, 8);
-    assert_eq!(header.global_meta_str_count, 25);
+    assert_eq!(header.global_meta_str_count, 26);
 
     assert_eq!(header.block_count_spect, 2);
     assert_eq!(header.block_count_chrom, 2);

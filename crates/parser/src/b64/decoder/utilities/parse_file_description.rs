@@ -1,19 +1,21 @@
 use crate::{
-    b64::utilities::{
-        children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
-        common::{get_attr_text, get_attr_u32},
-        parse_cv_and_user_params,
+    b64::{
+        attr_meta::{ACC_ATTR_COUNT, ACC_ATTR_ID, ACC_ATTR_LOCATION, ACC_ATTR_NAME},
+        utilities::{
+            children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
+            common::{get_attr_text, get_attr_u32},
+            parse_cv_and_user_params,
+        },
     },
     decoder::decode::Metadatum,
     mzml::{
-        attr_meta::{ACC_ATTR_COUNT, ACC_ATTR_ID, ACC_ATTR_LOCATION, ACC_ATTR_NAME},
         schema::TagId,
         structs::{Contact, FileContent, FileDescription, SourceFile, SourceFileList},
     },
 };
 
 #[inline]
-pub fn parse_file_description<P: MetadataPolicy>(
+pub(crate) fn parse_file_description<P: MetadataPolicy>(
     metadata: &[&Metadatum],
     children_lookup: &ChildrenLookup,
     policy: &P,

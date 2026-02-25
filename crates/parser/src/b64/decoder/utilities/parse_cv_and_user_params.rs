@@ -1,41 +1,48 @@
 use crate::{
     CvParam, UserParam,
-    b64::utilities::{
-        children_lookup::OwnerRows,
-        common::{is_cv_prefix, unit_cv_ref, value_to_opt_string},
+    b64::{
+        attr_meta::CV_REF_ATTR,
+        utilities::{
+            // children_lookup::OwnerRows,
+            common::{is_cv_prefix, unit_cv_ref, value_to_opt_string},
+            cv_table,
+        },
     },
     decoder::decode::{Metadatum, MetadatumValue},
-    mzml::{attr_meta::CV_REF_ATTR, cv_table, schema::TagId},
+    mzml::schema::TagId,
 };
 
+// #[inline]
+// pub(crate) fn parse_list_grouped_by_owner_id<'m, T, F, I>(
+//     iter: I,
+//     mut parse_item: F,
+// ) -> Option<Vec<T>>
+// where
+//     I: IntoIterator<Item = &'m Metadatum>,
+//     F: FnMut(u32, &[&'m Metadatum]) -> T,
+// {
+//     let mut groups: OwnerRows<'m> = OwnerRows::new();
+
+//     for entry in iter {
+//         groups.insert(entry.id, entry);
+//     }
+
+//     if groups.is_empty() {
+//         return None;
+//     }
+
+//     let mut entries: Vec<(u32, Vec<&'m Metadatum>)> = groups.into_iter().collect();
+//     entries.sort_unstable_by_key(|(owner_id, _)| *owner_id);
+
+//     let mut out = Vec::with_capacity(entries.len());
+//     for (owner_id, group) in entries {
+//         out.push(parse_item(owner_id, group.as_slice()));
+//     }
+//     Some(out)
+// }
+
 #[inline]
-pub fn parse_list_grouped_by_owner_id<'m, T, F, I>(iter: I, mut parse_item: F) -> Option<Vec<T>>
-where
-    I: IntoIterator<Item = &'m Metadatum>,
-    F: FnMut(u32, &[&'m Metadatum]) -> T,
-{
-    let mut groups: OwnerRows<'m> = OwnerRows::new();
-
-    for entry in iter {
-        groups.insert(entry.id, entry);
-    }
-
-    if groups.is_empty() {
-        return None;
-    }
-
-    let mut entries: Vec<(u32, Vec<&'m Metadatum>)> = groups.into_iter().collect();
-    entries.sort_unstable_by_key(|(owner_id, _)| *owner_id);
-
-    let mut out = Vec::with_capacity(entries.len());
-    for (owner_id, group) in entries {
-        out.push(parse_item(owner_id, group.as_slice()));
-    }
-    Some(out)
-}
-
-#[inline]
-pub fn parse_cv_and_user_params(metadata: &[&Metadatum]) -> (Vec<CvParam>, Vec<UserParam>) {
+pub(crate) fn parse_cv_and_user_params(metadata: &[&Metadatum]) -> (Vec<CvParam>, Vec<UserParam>) {
     let mut cv_params = Vec::with_capacity(metadata.len());
     let mut user_params = Vec::new();
 

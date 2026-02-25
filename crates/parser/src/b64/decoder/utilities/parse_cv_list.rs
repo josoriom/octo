@@ -1,21 +1,26 @@
 use crate::{
-    b64::utilities::{
-        children_lookup::{ChildrenLookup, OwnerRows},
-        common::get_attr_text,
-    },
-    decoder::decode::Metadatum,
-    mzml::{
+    b64::{
         attr_meta::{
             ACC_ATTR_CV_FULL_NAME, ACC_ATTR_CV_URI, ACC_ATTR_CV_VERSION, ACC_ATTR_ID,
             ACC_ATTR_LABEL,
         },
+        utilities::{
+            children_lookup::{ChildrenLookup, OwnerRows},
+            common::get_attr_text,
+        },
+    },
+    decoder::decode::Metadatum,
+    mzml::{
         schema::TagId,
-        structs::{Cv, CvList},
+        structs::{CvEntry, CvList},
     },
 };
 
 #[inline]
-pub fn parse_cv_list(metadata: &[&Metadatum], children_lookup: &ChildrenLookup) -> Option<CvList> {
+pub(crate) fn parse_cv_list(
+    metadata: &[&Metadatum],
+    children_lookup: &ChildrenLookup,
+) -> Option<CvList> {
     let mut owner_rows = OwnerRows::with_capacity(metadata.len());
     for &m in metadata {
         owner_rows.insert(m.id, m);
@@ -40,10 +45,10 @@ pub fn parse_cv_list(metadata: &[&Metadatum], children_lookup: &ChildrenLookup) 
 }
 
 #[inline]
-fn parse_cv(owner_rows: &OwnerRows, cv_id: u32) -> Cv {
+fn parse_cv(owner_rows: &OwnerRows, cv_id: u32) -> CvEntry {
     let rows = owner_rows.get(cv_id);
 
-    Cv {
+    CvEntry {
         id: get_attr_text(rows, ACC_ATTR_ID)
             .or_else(|| get_attr_text(rows, ACC_ATTR_LABEL))
             .unwrap_or_default(),

@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 static SCHEMA: OnceLock<SchemaTree> = OnceLock::new();
 
-pub fn schema() -> &'static SchemaTree {
+pub(crate) fn schema() -> &'static SchemaTree {
     SCHEMA.get_or_init(|| {
         let mut tree: SchemaTree =
             serde_json::from_str(include_str!("schema.json")).expect("schema.json (tree)");
@@ -17,7 +17,7 @@ pub fn schema() -> &'static SchemaTree {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum TagId {
+pub(crate) enum TagId {
     FileContent = 0,
     SourceFile = 1,
     Contact = 2,
@@ -97,14 +97,20 @@ pub enum TagId {
     UserParam = 53,
     CvList = 54,
     Cv = 55,
+    MzML = 56,
+    IndexList = 57,
+    IndexListOffset = 58,
+    FileChecksum = 59,
+    IndexedmzML = 60,
 
     Unknown = 255,
 }
 
 impl TagId {
     #[inline]
-    pub fn from_xml_tag(s: &str) -> TagId {
+    pub(crate) fn from_xml_tag(s: &str) -> TagId {
         match s {
+            "mzML" => TagId::MzML,
             "fileContent" => TagId::FileContent,
             "sourceFile" => TagId::SourceFile,
             "contact" => TagId::Contact,
@@ -185,7 +191,7 @@ impl TagId {
     }
 
     #[inline]
-    pub fn from_u8(b: u8) -> Option<TagId> {
+    pub(crate) fn from_u8(b: u8) -> Option<TagId> {
         const MAX_TAG: u8 = TagId::Cv as u8;
         match b {
             0..=MAX_TAG | 255 => Some(TagId::from(b)),
@@ -194,7 +200,7 @@ impl TagId {
     }
 
     #[inline]
-    pub fn as_u8(self) -> u8 {
+    pub(crate) fn as_u8(self) -> u8 {
         self as u8
     }
 }
@@ -259,6 +265,7 @@ impl From<u8> for TagId {
             53 => TagId::UserParam,
             54 => TagId::CvList,
             55 => TagId::Cv,
+            56 => TagId::MzML,
             255 => TagId::Unknown,
             _ => TagId::Unknown,
         }
@@ -267,7 +274,7 @@ impl From<u8> for TagId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Use {
+pub(crate) enum Use {
     Required,
     Optional,
 }
@@ -284,32 +291,32 @@ fn default_child_key_by_tag() -> Vec<Option<String>> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SchemaNode {
+pub(crate) struct SchemaNode {
     #[serde(rename = "self", default)]
-    pub self_tags: Vec<TagId>,
+    pub(crate) self_tags: Vec<TagId>,
 
     #[serde(default)]
-    pub attributes: HashMap<String, Vec<String>>,
+    pub(crate) attributes: HashMap<String, Vec<String>>,
 
     #[serde(default)]
-    pub children: HashMap<String, SchemaNode>,
+    pub(crate) children: HashMap<String, SchemaNode>,
 
     #[serde(rename = "use", default)]
-    pub use_: Use,
+    pub(crate) use_: Use,
 
     #[serde(default)]
-    pub accessions: Vec<String>,
+    pub(crate) accessions: Vec<String>,
 
     #[serde(default)]
-    pub attributes_use: HashMap<String, Use>,
+    pub(crate) attributes_use: HashMap<String, Use>,
 
     #[serde(skip, default = "default_child_key_by_tag")]
-    pub child_key_by_tag: Vec<Option<String>>,
+    pub(crate) child_key_by_tag: Vec<Option<String>>,
 }
 
 impl SchemaNode {
     #[inline]
-    pub fn build_children_lookup(&mut self) {
+    pub(crate) fn build_children_lookup(&mut self) {
         if self.child_key_by_tag.len() != 256 {
             self.child_key_by_tag = default_child_key_by_tag();
         } else {
@@ -329,13 +336,6 @@ impl SchemaNode {
             }
         }
     }
-
-    #[inline]
-    pub fn child_key_for_tag(&self, tag: TagId) -> Option<&str> {
-        self.child_key_by_tag
-            .get(tag as usize)
-            .and_then(|x| x.as_deref())
-    }
 }
 
 fn default_key_by_tag() -> Vec<Option<String>> {
@@ -343,16 +343,16 @@ fn default_key_by_tag() -> Vec<Option<String>> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SchemaTree {
+pub(crate) struct SchemaTree {
     #[serde(flatten)]
-    pub roots: HashMap<String, SchemaNode>,
+    pub(crate) roots: HashMap<String, SchemaNode>,
 
     #[serde(skip, default = "default_key_by_tag")]
     root_key_by_tag: Vec<Option<String>>,
 }
 
 impl SchemaTree {
-    pub fn build_index(&mut self) {
+    pub(crate) fn build_index(&mut self) {
         if self.root_key_by_tag.len() != 256 {
             self.root_key_by_tag = default_key_by_tag();
         } else {
@@ -374,24 +374,14 @@ impl SchemaTree {
     }
 
     #[inline]
-    pub fn root_key_for_tag(&self, tag: TagId) -> Option<&str> {
+    pub(crate) fn root_key_for_tag(&self, tag: TagId) -> Option<&str> {
         self.root_key_by_tag
             .get(tag.as_u8() as usize)
             .and_then(|x| x.as_deref())
     }
 
     #[inline]
-    pub fn root_by_key(&self, root_key: &str) -> Option<&SchemaNode> {
-        self.roots.get(root_key)
-    }
-
-    #[inline]
-    pub fn root_by_tag(&self, tag: TagId) -> Option<&SchemaNode> {
+    pub(crate) fn root_by_tag(&self, tag: TagId) -> Option<&SchemaNode> {
         self.root_key_for_tag(tag).and_then(|k| self.roots.get(k))
-    }
-
-    #[inline]
-    pub fn root_by_xml_tag(&self, xml_tag: &str) -> Option<&SchemaNode> {
-        self.root_by_tag(TagId::from_xml_tag(xml_tag))
     }
 }

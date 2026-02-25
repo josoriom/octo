@@ -1,18 +1,18 @@
 use crate::{
     BinaryDataArray, BinaryDataArrayList, CvParam, NumericType,
-    b64::utilities::{
-        children_lookup::{ChildrenLookup, DefaultMetadataPolicy, MetadataPolicy, OwnerRows},
-        common::{get_attr_text, get_attr_u32},
-        parse_cv_and_user_params,
-    },
-    decoder::decode::Metadatum,
-    mzml::{
+    b64::{
         attr_meta::{
             ACC_ATTR_ARRAY_LENGTH, ACC_ATTR_COUNT, ACC_ATTR_DATA_PROCESSING_REF,
             ACC_ATTR_ENCODED_LENGTH,
         },
-        schema::TagId,
+        utilities::{
+            children_lookup::{ChildrenLookup, DefaultMetadataPolicy, MetadataPolicy, OwnerRows},
+            common::{get_attr_text, get_attr_u32},
+            parse_cv_and_user_params,
+        },
     },
+    decoder::decode::Metadatum,
+    mzml::schema::TagId,
 };
 
 const ACC_NUMERIC_INT32: &str = "MS:1000519";
@@ -21,7 +21,7 @@ const ACC_NUMERIC_INT64: &str = "MS:1000522";
 const ACC_NUMERIC_FLOAT64: &str = "MS:1000523";
 
 #[inline]
-pub fn parse_binary_data_array_list(
+pub(crate) fn parse_binary_data_array_list(
     rows_by_id: &OwnerRows,
     children_lookup: &ChildrenLookup,
     parent_entity_id: u32,

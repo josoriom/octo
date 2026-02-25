@@ -1,10 +1,11 @@
 use std::{fs, path::PathBuf};
 
 use crate::b64::{
+    attr_meta::*,
     decoder::decode::{Metadatum, MetadatumValue},
     utilities::{parse_header, parse_metadata},
 };
-use crate::mzml::{attr_meta::*, schema::TagId};
+use crate::mzml::schema::TagId;
 
 const PATH: &str = "data/b64/test.b64";
 

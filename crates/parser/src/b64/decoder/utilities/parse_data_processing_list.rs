@@ -1,12 +1,14 @@
 use crate::{
-    b64::utilities::{
-        children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
-        common::get_attr_text,
-        parse_cv_and_user_params,
+    b64::{
+        attr_meta::{ACC_ATTR_ID, ACC_ATTR_ORDER, ACC_ATTR_REF, ACC_ATTR_SOFTWARE_REF},
+        utilities::{
+            children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
+            common::get_attr_text,
+            parse_cv_and_user_params,
+        },
     },
     decoder::decode::Metadatum,
     mzml::{
-        attr_meta::{ACC_ATTR_ID, ACC_ATTR_ORDER, ACC_ATTR_REF, ACC_ATTR_SOFTWARE_REF},
         schema::TagId,
         structs::{
             DataProcessing, DataProcessingList, ProcessingMethod, ReferenceableParamGroupRef,
@@ -15,7 +17,7 @@ use crate::{
 };
 
 #[inline]
-pub fn parse_data_processing_list<P: MetadataPolicy>(
+pub(crate) fn parse_data_processing_list<P: MetadataPolicy>(
     metadata: &[&Metadatum],
     children_lookup: &ChildrenLookup,
     policy: &P,

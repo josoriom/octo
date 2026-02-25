@@ -1,10 +1,10 @@
 use zstd::{bulk::Compressor as ZstdCompressor, zstd_safe::compress_bound};
 
-pub const BLOCK_DIRECTORY_ENTRY_SIZE: usize = 32;
+pub(crate) const BLOCK_DIRECTORY_ENTRY_SIZE: usize = 32;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FilterType {
+pub(crate) enum FilterType {
     None = 0,
     Shuffle = 1,
 }
@@ -22,7 +22,7 @@ impl TryFrom<u8> for FilterType {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Stride {
+pub(crate) enum Stride {
     S1 = 1,
     S2 = 2,
     S4 = 4,
@@ -31,7 +31,7 @@ pub enum Stride {
 
 impl Stride {
     #[inline]
-    pub fn from_size(size: usize) -> Self {
+    pub(crate) fn from_size(size: usize) -> Self {
         match size {
             2 => Self::S2,
             4 => Self::S4,
@@ -41,12 +41,12 @@ impl Stride {
     }
 
     #[inline]
-    pub fn as_usize(self) -> usize {
+    pub(crate) fn as_usize(self) -> usize {
         self as usize
     }
 
     #[inline]
-    pub fn array_idx(self) -> usize {
+    pub(crate) fn array_idx(self) -> usize {
         match self {
             Self::S1 => 0,
             Self::S2 => 1,
@@ -57,24 +57,24 @@ impl Stride {
 }
 
 #[derive(Clone, Copy, Default)]
-pub struct BlockDirEntry {
-    pub payload_offset: u64,
-    pub payload_size: u64,
-    pub uncompressed_len_bytes: u64,
+pub(crate) struct BlockDirEntry {
+    pub(crate) payload_offset: u64,
+    pub(crate) payload_size: u64,
+    pub(crate) uncompressed_len_bytes: u64,
 }
 
-pub trait BlockCompressor {
+pub(crate) trait BlockCompressor {
     fn compress(&mut self, input: &[u8], output: &mut Vec<u8>) -> Result<usize, String>;
     fn shuffle(&self, input: &[u8], output: &mut [u8], stride: usize);
     fn requires_shuffle(&self, filter_type: FilterType) -> bool;
 }
 
-pub struct DefaultCompressor {
+pub(crate) struct DefaultCompressor {
     internal_compressor: ZstdCompressor<'static>,
 }
 
 impl DefaultCompressor {
-    pub fn new(compression_level: i32) -> Result<Self, String> {
+    pub(crate) fn new(compression_level: i32) -> Result<Self, String> {
         Ok(Self {
             internal_compressor: ZstdCompressor::new(compression_level)
                 .map_err(|error| error.to_string())?,
@@ -100,12 +100,12 @@ impl BlockCompressor for DefaultCompressor {
     }
 }
 
-pub enum CompressionMode<C: BlockCompressor> {
+pub(crate) enum CompressionMode<C: BlockCompressor> {
     Raw,
     Compressed(C),
 }
 
-pub enum BlockState {
+pub(crate) enum BlockState {
     Active(u32),
     Sealed,
     Empty,
@@ -123,7 +123,7 @@ struct PendingBlock {
     data_buffer: Vec<u8>,
 }
 
-pub struct ContainerBuilder<C: BlockCompressor> {
+pub(crate) struct ContainerBuilder<C: BlockCompressor> {
     max_block_uncompressed_size: usize,
     filter_type: FilterType,
     active_blocks: [Option<PendingBlock>; 4],
@@ -136,7 +136,7 @@ pub struct ContainerBuilder<C: BlockCompressor> {
 
 impl<C: BlockCompressor> ContainerBuilder<C> {
     #[inline]
-    pub fn new(
+    pub(crate) fn new(
         max_block_uncompressed_size: usize,
         compressor_service: CompressionMode<C>,
         filter_type: FilterType,
@@ -154,7 +154,7 @@ impl<C: BlockCompressor> ContainerBuilder<C> {
     }
 
     #[inline]
-    pub fn add_item_to_box<F>(
+    pub(crate) fn add_item_to_box<F>(
         &mut self,
         item_byte_size: usize,
         stride: usize,
@@ -306,7 +306,7 @@ impl<C: BlockCompressor> ContainerBuilder<C> {
     }
 
     #[inline]
-    pub fn pack(mut self) -> Result<(Vec<u8>, u32), String> {
+    pub(crate) fn pack(mut self) -> Result<(Vec<u8>, u32), String> {
         for stride in [Stride::S1, Stride::S2, Stride::S4, Stride::S8] {
             self.seal_block_by_stride(stride)?;
         }

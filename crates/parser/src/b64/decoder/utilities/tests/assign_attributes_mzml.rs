@@ -7,12 +7,11 @@ use std::{
 
 use crate::{
     b64::{
+        attr_meta::*,
         decoder::decode::{Metadatum, MetadatumValue},
-        utilities::common::find_node_by_tag,
-        utilities::{assign_attributes, parse_header, parse_metadata},
+        utilities::{assign_attributes, common::find_node_by_tag, parse_header, parse_metadata},
     },
     mzml::{
-        attr_meta::*,
         schema::{TagId, schema},
         structs::{MzML, Spectrum},
     },

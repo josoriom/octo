@@ -13,7 +13,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy)]
-pub enum CvRefMode {
+pub(crate) enum CvRefMode {
     #[allow(dead_code)]
     Strict,
     #[allow(dead_code)]
@@ -21,28 +21,28 @@ pub enum CvRefMode {
 }
 
 #[allow(dead_code)]
-pub fn mzml(cache: &'static OnceLock<MzML>, path: &str) -> &'static MzML {
+pub(crate) fn mzml(cache: &'static OnceLock<MzML>, path: &str) -> &'static MzML {
     cache.get_or_init(|| {
         let bytes = load_mzml_bytes(path);
-        parse_mzml(&bytes, false).unwrap_or_else(|e| panic!("parse_mzml failed: {e}"))
+        parse_mzml(&bytes).unwrap_or_else(|e| panic!("parse_mzml failed: {e}"))
     })
 }
 
 #[allow(dead_code)]
-pub fn parse_b(cache: &'static OnceLock<MzML>, path: &str) -> &'static MzML {
+pub(crate) fn parse_b(cache: &'static OnceLock<MzML>, path: &str) -> &'static MzML {
     cache.get_or_init(|| {
         let bytes = load_mzml_bytes(path);
         decode(&bytes).unwrap_or_else(|e| panic!("parse_mzml failed: {e}"))
     })
 }
 
-pub fn load_mzml_bytes(path: &str) -> Vec<u8> {
+pub(crate) fn load_mzml_bytes(path: &str) -> Vec<u8> {
     let full = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(path);
     fs::read(&full).unwrap_or_else(|e| panic!("cannot read {:?}: {}", full, e))
 }
 
 #[allow(dead_code)]
-pub fn spectrum_by_id<'a>(mzml: &'a MzML, id: &str) -> &'a Spectrum {
+pub(crate) fn spectrum_by_id<'a>(mzml: &'a MzML, id: &str) -> &'a Spectrum {
     let sl = mzml
         .run
         .spectrum_list
@@ -55,7 +55,7 @@ pub fn spectrum_by_id<'a>(mzml: &'a MzML, id: &str) -> &'a Spectrum {
 }
 
 #[allow(dead_code)]
-pub fn spectrum_by_index<'a>(mzml: &'a MzML, idx: usize) -> &'a Spectrum {
+pub(crate) fn spectrum_by_index<'a>(mzml: &'a MzML, idx: usize) -> &'a Spectrum {
     let sl = mzml
         .run
         .spectrum_list
@@ -67,14 +67,14 @@ pub fn spectrum_by_index<'a>(mzml: &'a MzML, idx: usize) -> &'a Spectrum {
 }
 
 #[allow(dead_code)]
-pub fn spectrum_description(s: &Spectrum) -> &SpectrumDescription {
+pub(crate) fn spectrum_description(s: &Spectrum) -> &SpectrumDescription {
     s.spectrum_description
         .as_ref()
         .expect("spectrumDescription parsed")
 }
 
 #[allow(dead_code)]
-pub fn spectrum_scan_list(s: &Spectrum) -> &ScanList {
+pub(crate) fn spectrum_scan_list(s: &Spectrum) -> &ScanList {
     if let Some(sd) = s.spectrum_description.as_ref() {
         if let Some(sl) = sd.scan_list.as_ref() {
             return sl;
@@ -84,7 +84,7 @@ pub fn spectrum_scan_list(s: &Spectrum) -> &ScanList {
 }
 
 #[allow(dead_code)]
-pub fn spectrum_precursor_list(s: &Spectrum) -> Option<&PrecursorList> {
+pub(crate) fn spectrum_precursor_list(s: &Spectrum) -> Option<&PrecursorList> {
     if let Some(sd) = s.spectrum_description.as_ref() {
         if sd.precursor_list.is_some() {
             return sd.precursor_list.as_ref();
@@ -94,14 +94,14 @@ pub fn spectrum_precursor_list(s: &Spectrum) -> Option<&PrecursorList> {
 }
 
 #[allow(dead_code)]
-pub fn chromatogram_list(run: &Run) -> &ChromatogramList {
+pub(crate) fn chromatogram_list(run: &Run) -> &ChromatogramList {
     run.chromatogram_list
         .as_ref()
         .expect("chromatogramList parsed")
 }
 
 #[allow(dead_code)]
-pub fn chromatogram<'a>(cl: &'a ChromatogramList, id: &str) -> &'a Chromatogram {
+pub(crate) fn chromatogram<'a>(cl: &'a ChromatogramList, id: &str) -> &'a Chromatogram {
     cl.chromatograms
         .iter()
         .find(|c| c.id == id)
@@ -109,12 +109,12 @@ pub fn chromatogram<'a>(cl: &'a ChromatogramList, id: &str) -> &'a Chromatogram 
 }
 
 #[allow(dead_code)]
-pub fn cv_by_name<'a>(cv_params: &'a [CvParam], name: &str) -> Option<&'a CvParam> {
+pub(crate) fn cv_by_name<'a>(cv_params: &'a [CvParam], name: &str) -> Option<&'a CvParam> {
     cv_params.iter().find(|cv| cv.name == name)
 }
 
 #[allow(dead_code)]
-pub fn assert_cv_absent(cv_params: &[CvParam], name: &str) {
+pub(crate) fn assert_cv_absent(cv_params: &[CvParam], name: &str) {
     let got = cv_by_name(cv_params, name);
     assert!(
         got.is_none(),
@@ -122,7 +122,7 @@ pub fn assert_cv_absent(cv_params: &[CvParam], name: &str) {
     );
 }
 
-pub fn assert_cv_ref(policy: CvRefMode, got: Option<&str>, expected: &str, ctx: &str) {
+pub(crate) fn assert_cv_ref(policy: CvRefMode, got: Option<&str>, expected: &str, ctx: &str) {
     match (policy, got) {
         (_, Some(v)) if v == expected => {}
         (CvRefMode::AllowMissingMs, Some("")) if expected == "MS" => {}
@@ -131,7 +131,7 @@ pub fn assert_cv_ref(policy: CvRefMode, got: Option<&str>, expected: &str, ctx: 
     }
 }
 
-pub enum ExpectedCvValue<'a> {
+pub(crate) enum ExpectedCvValue<'a> {
     None,
     Str(&'a str),
     F64(f64),
@@ -176,7 +176,7 @@ where
 }
 
 #[allow(dead_code)]
-pub fn assert_cv<'a>(
+pub(crate) fn assert_cv<'a>(
     policy: CvRefMode,
     cv_params: &[CvParam],
     name: &str,
@@ -249,7 +249,7 @@ pub fn assert_cv<'a>(
 }
 
 #[allow(dead_code)]
-pub fn assert_software(
+pub(crate) fn assert_software(
     policy: CvRefMode,
     sw: &Software,
     cv_ref: &str,
@@ -267,7 +267,7 @@ pub fn assert_software(
 }
 
 #[allow(dead_code)]
-pub fn assert_software_param(
+pub(crate) fn assert_software_param(
     policy: CvRefMode,
     p: &SoftwareParam,
     cv_ref: &str,

@@ -140,7 +140,7 @@ fn default_cv_list() -> CvList {
     CvList {
         count: Some(2),
         cv: vec![
-            Cv {
+            CvEntry {
                 id: "MS".to_string(),
                 full_name: Some(
                     "Proteomics Standards Initiative Mass Spectrometry Ontology".to_string(),
@@ -151,7 +151,7 @@ fn default_cv_list() -> CvList {
                         .to_string(),
                 ),
             },
-            Cv {
+            CvEntry {
                 id: "UO".to_string(),
                 full_name: Some("Unit Ontology".to_string()),
                 version: Some("09:04:2014".to_string()),
@@ -337,6 +337,9 @@ fn write_sample_list(writer: &mut Writer<Vec<u8>>, list: &SampleList) -> Result<
         if let Some(r) = &s.referenceable_param_group_ref {
             write_referenceable_param_group_ref(writer, r)?;
         }
+
+        write_cv_params(writer, &s.cv_params)?;
+        write_user_params(writer, &s.user_params)?;
 
         writer
             .write_event(Event::End(BytesEnd::new("sample")))
@@ -601,6 +604,7 @@ fn write_software_list(writer: &mut Writer<Vec<u8>>, list: &SoftwareList) -> Res
         }
 
         write_cv_params(writer, &sw.cv_param)?;
+        write_user_params(writer, &sw.user_params)?;
 
         writer
             .write_event(Event::End(BytesEnd::new("software")))
@@ -959,6 +963,9 @@ fn write_scan_list(writer: &mut Writer<Vec<u8>>, list: &ScanList) -> Result<(), 
         .write_event(Event::Start(tag))
         .map_err(|e| e.to_string())?;
 
+    write_cv_params(writer, &list.cv_params)?;
+    write_user_params(writer, &list.user_params)?;
+
     const ACC_POSITIVE_SCAN: &str = "MS:1000130";
     const ACC_FULL_SCAN: &str = "MS:1000498";
     const ACC_FILTER_STRING: &str = "MS:1000512";
@@ -1089,6 +1096,9 @@ fn write_precursor_list(writer: &mut Writer<Vec<u8>>, list: &PrecursorList) -> R
         .write_event(Event::Start(tag))
         .map_err(|e| e.to_string())?;
 
+    write_cv_params(writer, &list.cv_params)?;
+    write_user_params(writer, &list.user_params)?;
+
     for p in &list.precursors {
         write_precursor(writer, p)?;
     }
@@ -1175,7 +1185,6 @@ fn write_selected_ion_list(
         .map_err(|e| e.to_string())?;
     Ok(())
 }
-
 fn write_product_list(writer: &mut Writer<Vec<u8>>, list: &ProductList) -> Result<(), String> {
     let count = list.count.unwrap_or(list.products.len());
     let mut tag = BytesStart::new("productList");
@@ -1211,6 +1220,9 @@ fn write_product(writer: &mut Writer<Vec<u8>>, p: &Product) -> Result<(), String
     writer
         .write_event(Event::Start(pt))
         .map_err(|e| e.to_string())?;
+
+    write_cv_params(writer, &p.cv_params)?;
+    write_user_params(writer, &p.user_params)?;
 
     if let Some(iw) = &p.isolation_window {
         write_cv_container(

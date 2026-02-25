@@ -1,23 +1,22 @@
 use crate::{
     ScanList, ScanWindow, ScanWindowList,
-    b64::utilities::{
-        children_lookup::{ChildrenLookup, DefaultMetadataPolicy, OwnerRows},
-        common::{get_attr_text, get_attr_u32},
-        parse_cv_and_user_params,
-    },
-    decoder::decode::Metadatum,
-    mzml::{
+    b64::{
         attr_meta::{
             ACC_ATTR_COUNT, ACC_ATTR_EXTERNAL_SPECTRUM_ID, ACC_ATTR_INSTRUMENT_CONFIGURATION_REF,
             ACC_ATTR_SOURCE_FILE_REF, ACC_ATTR_SPECTRUM_REF,
         },
-        schema::TagId,
-        structs::Scan,
+        utilities::{
+            children_lookup::{ChildrenLookup, DefaultMetadataPolicy, OwnerRows},
+            common::{get_attr_text, get_attr_u32},
+            parse_cv_and_user_params,
+        },
     },
+    decoder::decode::Metadatum,
+    mzml::{schema::TagId, structs::Scan},
 };
 
 #[inline]
-pub fn parse_scan_list<'a>(
+pub(crate) fn parse_scan_list<'a>(
     owner_rows: &'a OwnerRows<'a>,
     children_lookup: &ChildrenLookup,
     spectrum_id: u32,

@@ -1,13 +1,14 @@
 use crate::{
-    b64::utilities::{
-        children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
-        common::get_attr_text,
-        parse_cv_and_user_params,
+    b64::{
+        attr_meta::{ACC_ATTR_COUNT, ACC_ATTR_ID, ACC_ATTR_NAME, ACC_ATTR_REF, ACC_ATTR_VERSION},
+        utilities::{
+            children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
+            common::get_attr_text,
+            cv_table, parse_cv_and_user_params,
+        },
     },
     decoder::decode::Metadatum,
     mzml::{
-        attr_meta::{ACC_ATTR_COUNT, ACC_ATTR_ID, ACC_ATTR_NAME, ACC_ATTR_REF, ACC_ATTR_VERSION},
-        cv_table,
         schema::TagId,
         structs::{Software, SoftwareList, SoftwareParam},
     },
@@ -16,7 +17,7 @@ use crate::{
 const EXCLUDED_ACCESSION_PREFIX: &str = "B000:";
 
 #[inline]
-pub fn parse_software_list<P: MetadataPolicy>(
+pub(crate) fn parse_software_list<P: MetadataPolicy>(
     metadata: &[&Metadatum],
     children_lookup: &ChildrenLookup,
     policy: &P,

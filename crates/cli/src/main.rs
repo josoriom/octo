@@ -225,7 +225,7 @@ fn read_mzml_or_b64(file_path: &Path) -> Result<MzML, String> {
         return decode(&bytes).map_err(|e| format!("decode failed: {e}"));
     }
     if ext == "mzml" {
-        return parse_mzml(&bytes, false).map_err(|e| format!("parse_mzml failed: {e}"));
+        return parse_mzml(&bytes).map_err(|e| format!("parse_mzml failed: {e}"));
     }
 
     Err(format!(
@@ -516,7 +516,7 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                     }
                 };
 
-                let mzml = match parse_mzml(&bytes, false) {
+                let mzml = match parse_mzml(&bytes) {
                     Ok(v) => v,
                     Err(e) => {
                         had_failed.store(true, Ordering::Relaxed);
@@ -807,7 +807,7 @@ fn read_mzml_or_b64_from_bytes(file_path: &Path, bytes: &[u8]) -> Result<MzML, S
         return decode(bytes).map_err(|e| format!("decode failed: {e}"));
     }
     if ext == "mzml" {
-        return parse_mzml(bytes, false).map_err(|e| format!("parse_mzml failed: {e}"));
+        return parse_mzml(bytes).map_err(|e| format!("parse_mzml failed: {e}"));
     }
 
     Err(format!(

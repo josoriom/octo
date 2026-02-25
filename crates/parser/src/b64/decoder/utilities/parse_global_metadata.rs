@@ -19,7 +19,7 @@ fn u32_at(bytes: &[u8], off: usize) -> Result<u32, String> {
     Ok(u32::from_le_bytes(bytes[off..end].try_into().unwrap()))
 }
 
-pub fn parse_global_metadata(
+pub(crate) fn parse_global_metadata(
     bytes: &[u8],
     item_count: u32,
     meta_count: u32,

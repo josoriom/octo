@@ -18,16 +18,37 @@ pub struct MzML {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CvList {
     pub count: Option<usize>,
-    pub cv: Vec<Cv>,
+    pub cv: Vec<CvEntry>,
 }
 
-/// <cv>
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Cv {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CvEntry {
     pub id: String,
     pub full_name: Option<String>,
     pub version: Option<String>,
     pub uri: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexOffset {
+    pub id_ref: Option<String>,
+    pub offset: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexList {
+    pub spectrum: Vec<IndexOffset>,
+    pub chromatogram: Vec<IndexOffset>,
+    pub index_list_offset: Option<u64>,
+    pub file_checksum: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexedmzML {
+    pub mzml: MzML,
+    pub index_list: IndexList,
+    pub index_list_offset: Option<u64>,
+    pub file_checksum: Option<String>,
 }
 
 /// <cvParam>

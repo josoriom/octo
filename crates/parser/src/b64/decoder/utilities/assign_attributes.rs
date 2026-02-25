@@ -4,8 +4,8 @@ use std::sync::{Mutex, OnceLock};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::b64::attr_meta::{CV_REF_ATTR, attr_tail_from_key};
 use crate::decoder::decode::{Metadatum, MetadatumValue};
-use crate::mzml::attr_meta::{CV_REF_ATTR, attr_tail_from_key};
 use crate::mzml::schema::{SchemaNode, TagId, schema};
 
 static XMLKEY_TO_TAIL: OnceLock<HashMap<&'static str, u32>> = OnceLock::new();
@@ -19,7 +19,12 @@ struct FieldSpec {
     id_variant: Option<String>,
     uri_variant: Option<String>,
 }
-pub fn assign_attributes<T>(expected: &T, tag_id: TagId, id: u32, parent_id: u32) -> Vec<Metadatum>
+pub(crate) fn assign_attributes<T>(
+    expected: &T,
+    tag_id: TagId,
+    id: u32,
+    parent_id: u32,
+) -> Vec<Metadatum>
 where
     T: Serialize,
 {

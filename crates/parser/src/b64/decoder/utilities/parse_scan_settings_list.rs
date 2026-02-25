@@ -1,13 +1,15 @@
 use crate::{
     CvParam,
-    b64::utilities::{
-        children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
-        common::get_attr_text,
-        parse_cv_and_user_params,
+    b64::{
+        attr_meta::{ACC_ATTR_ID, ACC_ATTR_INSTRUMENT_CONFIGURATION_REF, ACC_ATTR_REF},
+        utilities::{
+            children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
+            common::get_attr_text,
+            parse_cv_and_user_params,
+        },
     },
     decoder::decode::Metadatum,
     mzml::{
-        attr_meta::{ACC_ATTR_ID, ACC_ATTR_INSTRUMENT_CONFIGURATION_REF, ACC_ATTR_REF},
         schema::TagId,
         structs::{
             ReferenceableParamGroupRef, ScanSettings, ScanSettingsList, SourceFileRef,
@@ -23,7 +25,7 @@ const ACC_SUFFIX_TARGET_START_MZ: &str = "1000502";
 const ACC_SUFFIX_TARGET_END_MZ: &str = "1000747";
 
 #[inline]
-pub fn parse_scan_settings_list<P: MetadataPolicy>(
+pub(crate) fn parse_scan_settings_list<P: MetadataPolicy>(
     metadata: &[&Metadatum],
     children_lookup: &ChildrenLookup,
     policy: &P,

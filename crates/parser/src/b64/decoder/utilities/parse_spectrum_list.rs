@@ -1,29 +1,26 @@
 use crate::{
     Spectrum, SpectrumDescription, SpectrumList,
-    b64::utilities::{
-        children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
-        common::{get_attr_text, get_attr_u32, xy_lengths_from_bdal},
-        parse_binary_data_array_list::parse_binary_data_array_list,
-        parse_cv_and_user_params,
-        parse_precursor_list::parse_precursor_list,
-        parse_product_list::parse_product_list,
-        parse_scan_list::parse_scan_list,
-    },
-    decoder::decode::Metadatum,
-    mzml::{
+    b64::{
         attr_meta::{
             ACC_ATTR_COUNT, ACC_ATTR_DATA_PROCESSING_REF, ACC_ATTR_DEFAULT_ARRAY_LENGTH,
             ACC_ATTR_DEFAULT_DATA_PROCESSING_REF, ACC_ATTR_ID, ACC_ATTR_INDEX, ACC_ATTR_NATIVE_ID,
             ACC_ATTR_SCAN_NUMBER, ACC_ATTR_SOURCE_FILE_REF, ACC_ATTR_SPOT_ID,
         },
-        schema::TagId,
+        utilities::{
+            children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
+            common::{get_attr_text, get_attr_u32, xy_lengths_from_bdal},
+            parse_binary_data_array_list, parse_cv_and_user_params, parse_precursor_list,
+            parse_product_list, parse_scan_list,
+        },
     },
+    decoder::decode::Metadatum,
+    mzml::schema::TagId,
 };
 
 const ACC_MS_LEVEL: &str = "MS:1000511";
 
 #[inline]
-pub fn parse_spectrum_list<P: MetadataPolicy>(
+pub(crate) fn parse_spectrum_list<P: MetadataPolicy>(
     metadata: &[&Metadatum],
     children_lookup: &ChildrenLookup,
     policy: &P,

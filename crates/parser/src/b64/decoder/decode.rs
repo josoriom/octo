@@ -1,24 +1,30 @@
 use crate::{
     Header,
-    b64::utilities::{
-        children_lookup::{ChildrenLookup, DefaultMetadataPolicy, OwnerRows},
-        common::{get_attr_text, parse_accession_tail_str, read_u32_le_at, read_u64_le_at, take},
-        container_builder::FilterType,
-        container_view::{BlockProcessor, ContainerView, DefaultProcessor},
-        parse_chromatogram_list::parse_chromatogram_list,
-        parse_cv_and_user_params, parse_cv_list, parse_data_processing_list,
-        parse_file_description::parse_file_description,
-        parse_global_metadata::parse_global_metadata,
-        parse_header, parse_instrument_list, parse_metadata,
-        parse_referenceable_param_group_list::parse_referenceable_param_group_list,
-        parse_sample_list, parse_scan_settings_list, parse_software_list,
-        parse_spectrum_list::parse_spectrum_list,
+    b64::{
+        attr_meta::{
+            ACC_ATTR_DEFAULT_INSTRUMENT_CONFIGURATION_REF, ACC_ATTR_ID,
+            ACC_ATTR_INSTRUMENT_CONFIGURATION_REF, ACC_ATTR_REF, ACC_ATTR_SAMPLE_REF,
+            ACC_ATTR_START_TIME_STAMP,
+        },
+        utilities::{
+            children_lookup::{ChildrenLookup, DefaultMetadataPolicy, OwnerRows},
+            common::{
+                get_attr_text, parse_accession_tail_str, read_u32_le_at, read_u64_le_at, take,
+            },
+            container_builder::FilterType,
+            container_view::{BlockProcessor, ContainerView, DefaultProcessor},
+            parse_chromatogram_list, parse_cv_and_user_params, parse_cv_list,
+            parse_data_processing_list, parse_file_description,
+            parse_global_metadata::parse_global_metadata,
+            parse_header, parse_instrument_list, parse_metadata,
+            parse_referenceable_param_group_list, parse_sample_list, parse_scan_settings_list,
+            parse_software_list, parse_spectrum_list,
+        },
     },
-    mzml::{attr_meta::*, schema::TagId, structs::*},
+    mzml::{schema::TagId, structs::*},
 };
 
-pub const A0_ENTRY_SIZE: u64 = 16;
-pub const A1_ENTRY_SIZE: u64 = 32;
+pub(crate) const A1_ENTRY_SIZE: u64 = 32;
 
 #[inline]
 pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
@@ -387,7 +393,12 @@ fn parse_metadata_section(
 }
 
 #[inline]
-pub fn slice_at<'a>(bytes: &'a [u8], off: u64, len: u64, f: &str) -> Result<&'a [u8], String> {
+pub(crate) fn slice_at<'a>(
+    bytes: &'a [u8],
+    off: u64,
+    len: u64,
+    f: &str,
+) -> Result<&'a [u8], String> {
     let (offset, length) = (off as usize, len as usize);
     bytes
         .get(offset..offset + length)
@@ -491,19 +502,19 @@ enum ArrayData {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum MetadatumValue {
+pub(crate) enum MetadatumValue {
     Number(f64),
     Text(String),
     Empty,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Metadatum {
-    pub item_index: u32,
-    pub id: u32,
-    pub parent_id: u32,
-    pub tag_id: TagId,
-    pub accession: Option<String>,
-    pub unit_accession: Option<String>,
-    pub value: MetadatumValue,
+pub(crate) struct Metadatum {
+    pub(crate) item_index: u32,
+    pub(crate) id: u32,
+    pub(crate) parent_id: u32,
+    pub(crate) tag_id: TagId,
+    pub(crate) accession: Option<String>,
+    pub(crate) unit_accession: Option<String>,
+    pub(crate) value: MetadatumValue,
 }

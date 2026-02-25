@@ -1,25 +1,27 @@
 use crate::{
     Chromatogram, ChromatogramList,
-    b64::utilities::{
-        children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
-        common::{get_attr_text, get_attr_u32, xy_lengths_from_bdal},
-        parse_binary_data_array_list::parse_binary_data_array_list,
-        parse_cv_and_user_params,
-    },
-    decoder::decode::Metadatum,
-    mzml::{
+    b64::{
         attr_meta::{
             ACC_ATTR_COUNT, ACC_ATTR_DATA_PROCESSING_REF, ACC_ATTR_DEFAULT_ARRAY_LENGTH,
             ACC_ATTR_DEFAULT_DATA_PROCESSING_REF, ACC_ATTR_EXTERNAL_SPECTRUM_ID, ACC_ATTR_ID,
             ACC_ATTR_INDEX, ACC_ATTR_NATIVE_ID, ACC_ATTR_SOURCE_FILE_REF, ACC_ATTR_SPECTRUM_REF,
         },
+        utilities::{
+            children_lookup::{ChildrenLookup, MetadataPolicy, OwnerRows},
+            common::{get_attr_text, get_attr_u32, xy_lengths_from_bdal},
+            parse_binary_data_array_list::parse_binary_data_array_list,
+            parse_cv_and_user_params,
+        },
+    },
+    decoder::decode::Metadatum,
+    mzml::{
         schema::TagId,
         structs::{Activation, IsolationWindow, Precursor, Product, SelectedIon, SelectedIonList},
     },
 };
 
 #[inline]
-pub fn parse_chromatogram_list<P: MetadataPolicy>(
+pub(crate) fn parse_chromatogram_list<P: MetadataPolicy>(
     metadata: &[&Metadatum],
     children_lookup: &ChildrenLookup,
     policy: &P,

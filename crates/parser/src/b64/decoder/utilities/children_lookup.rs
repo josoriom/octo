@@ -2,44 +2,44 @@ use crate::{decoder::decode::Metadatum, mzml::schema::TagId};
 use hashbrown::{HashMap as HbHashMap, HashSet as HbHashSet};
 
 type Map<K, V> = HbHashMap<K, V>;
-type Set<T> = HbHashSet<T>;
+// type Set<T> = HbHashSet<T>;
 
 const EXCLUDED_ACCESSION_PREFIX: &str = "B000:";
 
-pub trait MetadataPolicy {
+pub(crate) trait MetadataPolicy {
     fn is_param(&self, tag: TagId) -> bool;
     fn should_exclude(&self, m: &Metadatum) -> bool;
     fn traversal_tags(&self) -> &[TagId];
 }
 
 #[repr(transparent)]
-pub struct OwnerRows<'m>(Map<u32, Vec<&'m Metadatum>>);
+pub(crate) struct OwnerRows<'m>(Map<u32, Vec<&'m Metadatum>>);
 
 impl<'m> OwnerRows<'m> {
-    #[inline]
-    pub fn new() -> Self {
-        Self(Map::new())
-    }
+    // #[inline]
+    // pub(crate) fn new() -> Self {
+    //     Self(Map::new())
+    // }
 
     #[inline]
-    pub fn with_capacity(cap: usize) -> Self {
+    pub(crate) fn with_capacity(cap: usize) -> Self {
         Self(Map::with_capacity(cap))
     }
 
     #[inline]
-    pub fn get(&self, id: u32) -> &[&'m Metadatum] {
+    pub(crate) fn get(&self, id: u32) -> &[&'m Metadatum] {
         self.0.get(&id).map(|v| v.as_slice()).unwrap_or(&[])
     }
 
     #[inline]
-    pub fn insert(&mut self, id: u32, row: &'m Metadatum) {
+    pub(crate) fn insert(&mut self, id: u32, row: &'m Metadatum) {
         self.0.entry(id).or_default().push(row);
     }
 
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
+    // #[inline]
+    // pub(crate) fn is_empty(&self) -> bool {
+    //     self.0.is_empty()
+    // }
 }
 
 impl<'m> IntoIterator for OwnerRows<'m> {
@@ -52,14 +52,14 @@ impl<'m> IntoIterator for OwnerRows<'m> {
     }
 }
 
-pub struct ChildrenLookup {
+pub(crate) struct ChildrenLookup {
     ids_by_parent_tag: Map<u64, Vec<u32>>,
-    ids_by_parent: Map<u32, Vec<u32>>,
+    // ids_by_parent: Map<u32, Vec<u32>>,
     ids_by_tag: Map<TagId, Vec<u32>>,
 }
 
 impl ChildrenLookup {
-    pub fn new(metadata: &[Metadatum]) -> Self {
+    pub(crate) fn new(metadata: &[Metadatum]) -> Self {
         let mut count_by_parent_tag: Map<u64, usize> = Map::new();
         let mut count_by_parent: Map<u32, usize> = Map::new();
         let mut count_by_tag: Map<TagId, usize> = Map::new();
@@ -107,12 +107,12 @@ impl ChildrenLookup {
 
         Self {
             ids_by_parent_tag,
-            ids_by_parent,
+            // ids_by_parent,
             ids_by_tag,
         }
     }
 
-    pub fn get_param_rows_into<'a, P: MetadataPolicy>(
+    pub(crate) fn get_param_rows_into<'a, P: MetadataPolicy>(
         &self,
         owner_rows: &'a OwnerRows<'a>,
         entity_id: u32,
@@ -143,7 +143,7 @@ impl ChildrenLookup {
     }
 
     #[inline]
-    pub fn ids_for(&self, parent_id: u32, tag: TagId) -> &[u32] {
+    pub(crate) fn ids_for(&self, parent_id: u32, tag: TagId) -> &[u32] {
         self.ids_by_parent_tag
             .get(&key_parent_tag(parent_id, tag))
             .map(|v| v.as_slice())
@@ -151,28 +151,28 @@ impl ChildrenLookup {
     }
 
     #[inline]
-    pub fn all_ids(&self, tag: TagId) -> &[u32] {
+    pub(crate) fn all_ids(&self, tag: TagId) -> &[u32] {
         self.ids_by_tag
             .get(&tag)
             .map(|v| v.as_slice())
             .unwrap_or(&[])
     }
 
-    #[inline]
-    pub fn subtree_ids_into(&self, root_id: u32, visited: &mut Set<u32>) {
-        let mut stack = Vec::with_capacity(32);
-        stack.push(root_id);
-        while let Some(current_id) = stack.pop() {
-            if visited.insert(current_id) {
-                if let Some(children) = self.ids_by_parent.get(&current_id) {
-                    stack.extend_from_slice(children);
-                }
-            }
-        }
-    }
+    // #[inline]
+    // pub(crate) fn subtree_ids_into(&self, root_id: u32, visited: &mut Set<u32>) {
+    //     let mut stack = Vec::with_capacity(32);
+    //     stack.push(root_id);
+    //     while let Some(current_id) = stack.pop() {
+    //         if visited.insert(current_id) {
+    //             if let Some(children) = self.ids_by_parent.get(&current_id) {
+    //                 stack.extend_from_slice(children);
+    //             }
+    //         }
+    //     }
+    // }
 }
 
-pub struct DefaultMetadataPolicy;
+pub(crate) struct DefaultMetadataPolicy;
 
 impl MetadataPolicy for DefaultMetadataPolicy {
     #[inline]

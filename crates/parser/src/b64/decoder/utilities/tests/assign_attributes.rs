@@ -1,6 +1,5 @@
-use crate::b64::utilities::assign_attributes;
+use crate::b64::{attr_meta::*, utilities::assign_attributes};
 use crate::decoder::decode::{Metadatum, MetadatumValue};
-use crate::mzml::attr_meta::*;
 use crate::mzml::schema::TagId;
 use crate::mzml::structs::{Chromatogram, Spectrum};
 

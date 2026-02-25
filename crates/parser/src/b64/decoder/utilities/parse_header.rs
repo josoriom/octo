@@ -1,7 +1,7 @@
 const HEADER_SIZE: usize = 512;
 const RESERVED_EXT_SIZE: usize = 256;
 
-pub fn parse_header(bytes: &[u8]) -> Result<Header, String> {
+pub(crate) fn parse_header(bytes: &[u8]) -> Result<Header, String> {
     if bytes.len() < HEADER_SIZE {
         return Err("header: file too small".to_string());
     }
