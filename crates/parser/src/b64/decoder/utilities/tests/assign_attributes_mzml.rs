@@ -63,15 +63,15 @@ fn schema_attrs_for_tag(tag: TagId) -> &'static HashMap<String, Vec<String>> {
     &node.attributes
 }
 
-fn parse_b000_tail(accession: &str) -> Option<u32> {
+fn parse_b000_tail(accession: &str) -> Option<AccessionTail> {
     let (cv, tail) = accession.split_once(':')?;
     if cv != CV_REF_ATTR {
         return None;
     }
-    tail.parse::<u32>().ok()
+    tail.parse::<u32>().ok().map(AccessionTail::from_raw)
 }
 
-fn tail_to_field_key(tail: u32) -> Option<&'static str> {
+pub(crate) fn tail_to_field_key(tail: AccessionTail) -> Option<&'static str> {
     match tail {
         ACC_ATTR_ID => Some("id"),
         ACC_ATTR_REF => Some("ref"),
@@ -105,7 +105,7 @@ fn tail_to_field_key(tail: u32) -> Option<&'static str> {
     }
 }
 
-fn find_by_tail<'a>(meta: &'a [Metadatum], tail: u32) -> Option<&'a Metadatum> {
+fn find_by_tail<'a>(meta: &'a [Metadatum], tail: AccessionTail) -> Option<&'a Metadatum> {
     meta.iter().find(|m| {
         m.accession
             .as_deref()
@@ -139,7 +139,7 @@ fn candidate_schema_attr_tails_for_owner(
     meta: &[Metadatum],
     id: u32,
     schema_attrs: &HashMap<String, Vec<String>>,
-) -> HashSet<u32> {
+) -> HashSet<AccessionTail> {
     let mut tails = HashSet::new();
 
     for m in meta.iter().filter(|m| m.id == id) {
@@ -161,14 +161,14 @@ fn candidate_schema_attr_tails_for_owner(
     tails
 }
 
-fn find_id_by_tail_text(meta: &[Metadatum], tag: TagId, tail: u32, text: &str) -> u32 {
+fn find_id_by_tail_text(meta: &[Metadatum], tag: TagId, tail: AccessionTail, text: &str) -> u32 {
     meta.iter()
         .find(|m| {
             m.tag_id == tag
                 && m.accession.as_deref().and_then(parse_b000_tail) == Some(tail)
                 && matches!(&m.value, MetadatumValue::Text(t) if t == text)
         })
-        .unwrap_or_else(|| panic!("cannot find id for {tag:?} tail={tail} text={text:?}"))
+        .unwrap_or_else(|| panic!("cannot find id for {tag:?} tail={tail:?} text={text:?}"))
         .id
 }
 

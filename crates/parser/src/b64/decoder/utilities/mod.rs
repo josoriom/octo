@@ -39,7 +39,6 @@ pub(crate) use parse_scan_settings_list::parse_scan_settings_list;
 pub(crate) mod parse_cv_list;
 pub(crate) use parse_cv_list::parse_cv_list;
 pub(crate) mod children_lookup;
-pub(crate) mod container_builder;
 pub(crate) mod container_view;
 pub(crate) mod cv_table;
 

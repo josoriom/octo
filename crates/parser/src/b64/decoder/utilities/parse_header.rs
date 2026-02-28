@@ -290,3 +290,44 @@ impl<'a> Reader<'a> {
         Ok(v)
     }
 }
+
+pub(crate) const HEADER_OFFSET_SPEC_ENTRIES: usize = 8;
+pub(crate) const HEADER_LEN_SPEC_ENTRIES: usize = 16;
+pub(crate) const HEADER_OFFSET_SPEC_ARRAYREFS: usize = 24;
+pub(crate) const HEADER_LEN_SPEC_ARRAYREFS: usize = 32;
+pub(crate) const HEADER_OFFSET_CHROM_ENTRIES: usize = 40;
+pub(crate) const HEADER_LEN_CHROM_ENTRIES: usize = 48;
+pub(crate) const HEADER_OFFSET_CHROM_ARRAYREFS: usize = 56;
+pub(crate) const HEADER_LEN_CHROM_ARRAYREFS: usize = 64;
+pub(crate) const HEADER_OFFSET_SPEC_META: usize = 72;
+pub(crate) const HEADER_LEN_SPEC_META: usize = 80;
+pub(crate) const HEADER_OFFSET_CHROM_META: usize = 88;
+pub(crate) const HEADER_LEN_CHROM_META: usize = 96;
+pub(crate) const HEADER_OFFSET_GLOBAL_META: usize = 104;
+pub(crate) const HEADER_LEN_GLOBAL_META: usize = 112;
+pub(crate) const HEADER_OFFSET_PACKED_SPECTRA: usize = 120;
+pub(crate) const HEADER_LEN_PACKED_SPECTRA: usize = 128;
+pub(crate) const HEADER_OFFSET_PACKED_CHROMS: usize = 136;
+pub(crate) const HEADER_LEN_PACKED_CHROMS: usize = 144;
+pub(crate) const HEADER_SPECTRUM_BLOCK_COUNT: usize = 152;
+pub(crate) const HEADER_CHROM_BLOCK_COUNT: usize = 156;
+pub(crate) const HEADER_SPECTRUM_COUNT: usize = 160;
+pub(crate) const HEADER_CHROM_COUNT: usize = 164;
+pub(crate) const HEADER_SPEC_META_ROW_COUNT: usize = 168;
+pub(crate) const HEADER_SPEC_META_NUMERIC_COUNT: usize = 172;
+pub(crate) const HEADER_SPEC_META_STRING_COUNT: usize = 176;
+pub(crate) const HEADER_CHROM_META_ROW_COUNT: usize = 180;
+pub(crate) const HEADER_CHROM_META_NUMERIC_COUNT: usize = 184;
+pub(crate) const HEADER_CHROM_META_STRING_COUNT: usize = 188;
+pub(crate) const HEADER_GLOBAL_META_ROW_COUNT: usize = 192;
+pub(crate) const HEADER_GLOBAL_META_NUMERIC_COUNT: usize = 196;
+pub(crate) const HEADER_GLOBAL_META_STRING_COUNT: usize = 200;
+pub(crate) const HEADER_SPEC_ARRAY_TYPE_COUNT: usize = 204;
+pub(crate) const HEADER_CHROM_ARRAY_TYPE_COUNT: usize = 208;
+pub(crate) const HEADER_TARGET_BLOCK_SIZE: usize = 216;
+pub(crate) const HEADER_CODEC_ID: usize = 224;
+pub(crate) const HEADER_COMPRESSION_LEVEL: usize = 225;
+pub(crate) const HEADER_ARRAY_FILTER_ID: usize = 226;
+pub(crate) const HEADER_SPEC_META_UNCOMPRESSED_SIZE: usize = 232;
+pub(crate) const HEADER_CHROM_META_UNCOMPRESSED_SIZE: usize = 240;
+pub(crate) const HEADER_GLOBAL_META_UNCOMPRESSED_SIZE: usize = 248;

@@ -21,7 +21,7 @@ fn check_header() {
     assert_eq!(header.spectrum_count, 2);
     assert_eq!(header.chrom_count, 2);
 
-    assert_eq!(header.spec_meta_count, 69);
+    assert_eq!(header.spec_meta_count, 71);
     assert_eq!(header.spec_meta_num_count, 34);
     assert_eq!(header.spec_meta_str_count, 3);
 
@@ -106,6 +106,7 @@ fn check_header() {
             .unwrap_or(u64::MAX)
             <= header.off_global_meta
     );
+    println!("{:#?}", header);
     assert!(
         header
             .off_global_meta

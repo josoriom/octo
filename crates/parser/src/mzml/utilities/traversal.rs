@@ -118,3 +118,12 @@ impl ParamCollector for Spectrum {
         self.referenceable_param_group_refs.push(p);
     }
 }
+
+impl ParamCollector for ScanList {
+    fn receive_cv(&mut self, p: CvParam) {
+        self.cv_params.push(p);
+    }
+    fn receive_user(&mut self, p: UserParam) {
+        self.user_params.push(p);
+    }
+}

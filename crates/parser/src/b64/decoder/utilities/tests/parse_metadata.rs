@@ -768,9 +768,9 @@ fn find_meta_all<'a>(
     item_index: u32,
     tag_id: TagId,
     ref_id: u8,
-    accession_tail: u32,
+    accession_tail: AccessionTail,
 ) -> Vec<&'a Metadatum> {
-    let expected_accession = format_accession(ref_id, accession_tail);
+    let expected_accession = format_accession(ref_id, accession_tail.raw());
 
     let mut out = Vec::new();
     for m in meta {
@@ -789,11 +789,11 @@ fn find_meta_one<'a>(
     item_index: u32,
     tag_id: TagId,
     ref_id: u8,
-    accession_tail: u32,
+    accession_tail: AccessionTail,
 ) -> &'a Metadatum {
     let hits = find_meta_all(meta, item_index, tag_id, ref_id, accession_tail);
     if hits.len() != 1 {
-        let expected_accession = format_accession(ref_id, accession_tail);
+        let expected_accession = format_accession(ref_id, accession_tail.raw());
         panic!(
             "expected exactly 1 metadatum, found {}: item_index={}, tag_id={:?}, accession={:?}",
             hits.len(),
@@ -804,13 +804,12 @@ fn find_meta_one<'a>(
     }
     hits[0]
 }
-
 fn expect_text_one(
     meta: &[Metadatum],
     item_index: u32,
     tag_id: TagId,
     ref_id: u8,
-    accession_tail: u32,
+    accession_tail: AccessionTail,
     unit_ref_id: u8,
     unit_accession_tail: u32,
     expected: &str,
@@ -834,7 +833,7 @@ fn expect_number_one(
     item_index: u32,
     tag_id: TagId,
     ref_id: u8,
-    accession_tail: u32,
+    accession_tail: AccessionTail,
     unit_ref_id: u8,
     unit_accession_tail: u32,
     expected: f64,
@@ -864,7 +863,7 @@ fn expect_empty_one(
     item_index: u32,
     tag_id: TagId,
     ref_id: u8,
-    accession_tail: u32,
+    accession_tail: AccessionTail,
     unit_ref_id: u8,
     unit_accession_tail: u32,
 ) {
@@ -887,7 +886,7 @@ fn expect_empty_count(
     item_index: u32,
     tag_id: TagId,
     ref_id: u8,
-    accession_tail: u32,
+    accession_tail: AccessionTail,
     unit_ref_id: u8,
     unit_accession_tail: u32,
     expected_count: usize,
@@ -900,7 +899,7 @@ fn expect_empty_count(
         "unexpected metadatum count for item_index={}, tag_id={:?}, accession={:?}",
         item_index,
         tag_id,
-        format_accession(ref_id, accession_tail)
+        format_accession(ref_id, accession_tail.raw())
     );
 
     let expected_unit_accession = format_accession(unit_ref_id, unit_accession_tail);

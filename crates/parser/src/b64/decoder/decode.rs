@@ -2,17 +2,19 @@ use crate::{
     Header,
     b64::{
         attr_meta::{
-            ACC_ATTR_DEFAULT_INSTRUMENT_CONFIGURATION_REF, ACC_ATTR_ID,
-            ACC_ATTR_INSTRUMENT_CONFIGURATION_REF, ACC_ATTR_REF, ACC_ATTR_SAMPLE_REF,
+            ACC_ATTR_DEFAULT_INSTRUMENT_CONFIGURATION_REF,
+            ACC_ATTR_ID,
+            ACC_ATTR_INSTRUMENT_CONFIGURATION_REF,
+            ACC_ATTR_REF,
+            ACC_ATTR_SAMPLE_REF,
             ACC_ATTR_START_TIME_STAMP,
+            parse_accession_tail, // ← canonical, returns AccessionTail
         },
+        encoder::utilities::FilterType,
         utilities::{
             children_lookup::{ChildrenLookup, DefaultMetadataPolicy, OwnerRows},
-            common::{
-                get_attr_text, parse_accession_tail_str, read_u32_le_at, read_u64_le_at, take,
-            },
-            container_builder::FilterType,
-            container_view::{BlockProcessor, ContainerView, DefaultProcessor},
+            common::get_attr_text,
+            container_view::{ArrayData, BinaryStore, BinaryStoreConfig},
             parse_chromatogram_list, parse_cv_and_user_params, parse_cv_list,
             parse_data_processing_list, parse_file_description,
             parse_global_metadata::parse_global_metadata,
@@ -23,8 +25,6 @@ use crate::{
     },
     mzml::{schema::TagId, structs::*},
 };
-
-pub(crate) const A1_ENTRY_SIZE: u64 = 32;
 
 #[inline]
 pub fn decode(bytes: &[u8]) -> Result<MzML, String> {
@@ -101,121 +101,103 @@ fn parse_run(
         ..Default::default()
     };
 
-    let (mut spec_binaries, mut chrom_binaries) = parse_binaries(bytes, header)?;
-    attach_binaries(&mut run, &mut spec_binaries, &mut chrom_binaries);
+    // ── binary data ───────────────────────────────────────────────────────────
+    // BinaryStore owns the full extraction pipeline; decode.rs sees only
+    // pre-decoded slots that are consumed once via `take`.
+    let filter = FilterType::try_from(header.array_filter)?;
 
+    let mut spec_store = BinaryStore::build(
+        slice_at(
+            bytes,
+            header.off_container_spect,
+            header.len_container_spect,
+            "spec",
+        )?,
+        slice_at(
+            bytes,
+            header.off_spec_arrayrefs,
+            header.len_spec_arrayrefs,
+            "A1-spec",
+        )?,
+        slice_at(
+            bytes,
+            header.off_spec_entries,
+            header.len_spec_entries,
+            "A0-spec",
+        )?,
+        BinaryStoreConfig {
+            block_count: header.block_count_spect,
+            item_count: header.spectrum_count,
+            compression_level: header.compression_level,
+            filter,
+            context_label: "spec",
+        },
+    )?;
+
+    let mut chrom_store = BinaryStore::build(
+        slice_at(
+            bytes,
+            header.off_container_chrom,
+            header.len_container_chrom,
+            "chrom",
+        )?,
+        slice_at(
+            bytes,
+            header.off_chrom_arrayrefs,
+            header.len_chrom_arrayrefs,
+            "A1-chrom",
+        )?,
+        slice_at(
+            bytes,
+            header.off_chrom_entries,
+            header.len_chrom_entries,
+            "A0-chrom",
+        )?,
+        BinaryStoreConfig {
+            block_count: header.block_count_chrom,
+            item_count: header.chrom_count,
+            compression_level: header.compression_level,
+            filter,
+            context_label: "chrom",
+        },
+    )?;
+
+    attach_binaries(&mut run, &mut spec_store, &mut chrom_store);
     Ok(run)
 }
 
-#[inline]
-fn parse_binaries(
-    bytes: &[u8],
-    h: &Header,
-) -> Result<
-    (
-        Vec<Option<Vec<(u32, ArrayData)>>>,
-        Vec<Option<Vec<(u32, ArrayData)>>>,
-    ),
-    String,
-> {
-    let spec_a1 = parse_a1(bytes, h.off_spec_arrayrefs, h.len_spec_arrayrefs)?;
-    let chrom_a1 = parse_a1(bytes, h.off_chrom_arrayrefs, h.len_chrom_arrayrefs)?;
+// ── Binary attachment ─────────────────────────────────────────────────────────
 
-    let array_filter = FilterType::try_from(h.array_filter)?;
-
-    let mut s_view = ContainerView::new(
-        slice_at(bytes, h.off_container_spect, h.len_container_spect, "spec")?,
-        h.block_count_spect,
-        h.compression_level,
-        array_filter,
-        "spec",
-        DefaultProcessor,
-    )?;
-
-    let mut c_view = ContainerView::new(
-        slice_at(bytes, h.off_container_chrom, h.len_container_chrom, "chrom")?,
-        h.block_count_chrom,
-        h.compression_level,
-        array_filter,
-        "chrom",
-        DefaultProcessor,
-    )?;
-
-    let mut s_data = Vec::with_capacity(h.spectrum_count as usize);
-    for entry in parse_a0(
-        bytes,
-        h.off_spec_entries,
-        h.len_spec_entries,
-        h.spectrum_count,
-    )? {
-        s_data.push(Some(extract_arrays(&mut s_view, &spec_a1, &entry)));
-    }
-
-    let mut c_data = Vec::with_capacity(h.chrom_count as usize);
-    for entry in parse_a0(
-        bytes,
-        h.off_chrom_entries,
-        h.len_chrom_entries,
-        h.chrom_count,
-    )? {
-        c_data.push(Some(extract_arrays(&mut c_view, &chrom_a1, &entry)));
-    }
-
-    Ok((s_data, c_data))
-}
-
-#[inline]
-fn extract_arrays<P: BlockProcessor>(
-    view: &mut ContainerView<'_, P>,
-    a1: &[A1Ref],
-    entry: &A0Entry,
-) -> Vec<(u32, ArrayData)> {
-    let start = entry.a1_start as usize;
-    let end = start + entry.a1_count as usize;
-
-    if end > a1.len() {
-        return Vec::new();
-    }
-
-    a1[start..end]
-        .iter()
-        .filter_map(|r| {
-            let (size, numeric_type) = dtype_to_layout(r.dtype).ok()?;
-            let raw = view
-                .get_item_from_block(r.block_id, r.element_off, r.len_elements, size, "")
-                .ok()?;
-            Some((r.array_type, bytes_to_data(raw, numeric_type)))
-        })
-        .collect()
-}
-
-#[inline]
-fn attach_binaries(
-    run: &mut Run,
-    spec_binaries: &mut [Option<Vec<(u32, ArrayData)>>],
-    chrom_binaries: &mut [Option<Vec<(u32, ArrayData)>>],
-) {
-    if let Some(spectrum_list) = run.spectrum_list.as_mut() {
-        for (index, spectrum) in spectrum_list.spectra.iter_mut().enumerate() {
-            if let Some(arrays) = spec_binaries.get_mut(index).and_then(|slot| slot.take()) {
-                if let Some(bdal) = spectrum.binary_data_array_list.as_mut() {
-                    bind_arrays(bdal, arrays);
-                }
+fn attach_binaries(run: &mut Run, spec: &mut BinaryStore, chrom: &mut BinaryStore) {
+    if let Some(list) = run.spectrum_list.as_mut() {
+        for (i, spectrum) in list.spectra.iter_mut().enumerate() {
+            let Some(arrays) = spec.take(i) else { continue };
+            if arrays.is_empty() {
+                continue;
             }
+            let bdal = spectrum
+                .binary_data_array_list
+                .get_or_insert_with(BinaryDataArrayList::default);
+            bind_arrays(bdal, arrays);
         }
     }
-    if let Some(chromatogram_list) = run.chromatogram_list.as_mut() {
-        for (index, chromatogram) in chromatogram_list.chromatograms.iter_mut().enumerate() {
-            if let Some(arrays) = chrom_binaries.get_mut(index).and_then(|slot| slot.take()) {
-                if let Some(bdal) = chromatogram.binary_data_array_list.as_mut() {
-                    bind_arrays(bdal, arrays);
-                }
+    if let Some(list) = run.chromatogram_list.as_mut() {
+        for (i, chromatogram) in list.chromatograms.iter_mut().enumerate() {
+            let Some(arrays) = chrom.take(i) else {
+                continue;
+            };
+            if arrays.is_empty() {
+                continue;
             }
+            let bdal = chromatogram
+                .binary_data_array_list
+                .get_or_insert_with(BinaryDataArrayList::default);
+            bind_arrays(bdal, arrays);
         }
     }
 }
 
-#[inline]
+// AFTER
 fn bind_arrays(list: &mut BinaryDataArrayList, arrays: Vec<(u32, ArrayData)>) {
     for (kind, data) in arrays {
         let found = list
@@ -223,47 +205,65 @@ fn bind_arrays(list: &mut BinaryDataArrayList, arrays: Vec<(u32, ArrayData)>) {
             .iter_mut()
             .find(|b| bda_matches(b, kind));
 
-        if let Some(bda) = found {
-            let numeric_type = match data {
-                ArrayData::F16(v) => {
-                    bda.binary = Some(BinaryData::F16(v));
-                    NumericType::Float16
-                }
-                ArrayData::F32(v) => {
-                    bda.binary = Some(BinaryData::F32(v));
-                    NumericType::Float32
-                }
-                ArrayData::F64(v) => {
-                    bda.binary = Some(BinaryData::F64(v));
-                    NumericType::Float64
-                }
-                ArrayData::I16(v) => {
-                    bda.binary = Some(BinaryData::I16(v));
-                    NumericType::Int16
-                }
-                ArrayData::I32(v) => {
-                    bda.binary = Some(BinaryData::I32(v));
-                    NumericType::Int32
-                }
-                ArrayData::I64(v) => {
-                    bda.binary = Some(BinaryData::I64(v));
-                    NumericType::Int64
-                }
-            };
-            sync_numeric_meta(bda, numeric_type);
-        } else {
-            panic!(
-                "DECODE ERROR: Could not find BinaryDataArray for array type 1000{:03}. Verify encoder is preserving array type CV params.",
-                kind % 1000
-            );
-        }
+        let bda = match found {
+            Some(existing) => existing,
+            None => {
+                list.binary_data_arrays.push(make_bda_stub(kind));
+                list.binary_data_arrays.last_mut().unwrap()
+            }
+        };
+
+        let numeric_type = match data {
+            ArrayData::F16(v) => {
+                bda.binary = Some(BinaryData::F16(v));
+                NumericType::Float16
+            }
+            ArrayData::F32(v) => {
+                bda.binary = Some(BinaryData::F32(v));
+                NumericType::Float32
+            }
+            ArrayData::F64(v) => {
+                bda.binary = Some(BinaryData::F64(v));
+                NumericType::Float64
+            }
+            ArrayData::I16(v) => {
+                bda.binary = Some(BinaryData::I16(v));
+                NumericType::Int16
+            }
+            ArrayData::I32(v) => {
+                bda.binary = Some(BinaryData::I32(v));
+                NumericType::Int32
+            }
+            ArrayData::I64(v) => {
+                bda.binary = Some(BinaryData::I64(v));
+                NumericType::Int64
+            }
+        };
+        sync_numeric_meta(bda, numeric_type);
     }
     list.count = Some(list.binary_data_arrays.len());
 }
 
+fn make_bda_stub(array_type_accession: u32) -> BinaryDataArray {
+    BinaryDataArray {
+        cv_params: vec![CvParam {
+            cv_ref: Some("MS".to_string()),
+            accession: Some(format!("MS:{array_type_accession:07}")),
+            name: String::new(),
+            value: None,
+            unit_cv_ref: None,
+            unit_name: None,
+            unit_accession: None,
+        }],
+        ..BinaryDataArray::default()
+    }
+}
+
+// ── CV param sync ─────────────────────────────────────────────────────────────
+
 #[inline]
 fn sync_numeric_meta(bda: &mut BinaryDataArray, numeric_type: NumericType) {
-    let target_accession = match numeric_type {
+    let target = match numeric_type {
         NumericType::Float16 => 1_000_520,
         NumericType::Float32 => 1_000_521,
         NumericType::Float64 => 1_000_523,
@@ -271,72 +271,60 @@ fn sync_numeric_meta(bda: &mut BinaryDataArray, numeric_type: NumericType) {
         NumericType::Int32 => 1_000_519,
         NumericType::Int64 => 1_000_522,
     };
-    bda.cv_params.retain(|p| {
-        !is_numeric_acc(parse_accession_tail_str(
-            p.accession.as_deref().unwrap_or(""),
-        ))
-    });
-    bda.cv_params.push(ms_param(target_accession));
+    // Remove any existing numeric-type CV params, then push the correct one.
+    bda.cv_params
+        .retain(|p| !is_numeric_acc(parse_accession_tail(p.accession.as_deref())));
+    bda.cv_params.push(ms_numeric_param(target));
     bda.numeric_type = Some(numeric_type);
 }
 
+/// True when `tail` identifies one of the six MS numeric-type accessions.
 #[inline]
-fn bda_matches(bda: &BinaryDataArray, kind: u32) -> bool {
-    bda.cv_params.iter().any(|p| {
-        let accession = p.accession.as_deref().unwrap_or("");
-        parse_accession_tail_str(accession) == kind
-    })
-}
-
-#[inline]
-fn is_numeric_acc(tail: u32) -> bool {
+fn is_numeric_acc(tail: crate::b64::attr_meta::AccessionTail) -> bool {
     matches!(
-        tail,
-        1000520 | 1000521 | 1000523 | 1000518 | 1000519 | 1000522
+        tail.raw(),
+        1_000_520 | 1_000_521 | 1_000_523 | 1_000_518 | 1_000_519 | 1_000_522
     )
 }
 
+/// True when `bda`'s CV params include `kind` as an array-type accession tail.
 #[inline]
-fn ms_param(tail: u32) -> CvParam {
+fn bda_matches(bda: &BinaryDataArray, kind: u32) -> bool {
+    bda.cv_params
+        .iter()
+        .any(|p| parse_accession_tail(p.accession.as_deref()).raw() == kind)
+}
+
+#[inline]
+fn ms_numeric_param(tail: u32) -> CvParam {
     let name = match tail {
-        1000521 => "32-bit float",
-        1000523 => "64-bit float",
-        1000519 => "32-bit integer",
-        1000522 => "64-bit integer",
+        1_000_521 => "32-bit float",
+        1_000_523 => "64-bit float",
+        1_000_519 => "32-bit integer",
+        1_000_522 => "64-bit integer",
         _ => "numeric",
     };
     CvParam {
         cv_ref: Some("MS".into()),
-        accession: Some(format!("MS:{:07}", tail)),
+        accession: Some(format!("MS:{tail:07}")),
         name: name.into(),
         ..Default::default()
     }
 }
 
+// ── Section slicing and metadata helpers ──────────────────────────────────────
+
 #[inline]
-fn parse_run_source_file_refs(
-    owner_rows: &OwnerRows,
-    lookup: &ChildrenLookup,
-    run_id: u32,
-) -> Option<SourceFileRefList> {
-    let list_id = lookup
-        .ids_for(run_id, TagId::SourceFileRefList)
-        .first()
-        .copied()
-        .or_else(|| lookup.all_ids(TagId::SourceFileRefList).first().copied())?;
-
-    let refs: Vec<_> = lookup
-        .ids_for(list_id, TagId::SourceFileRef)
-        .iter()
-        .filter_map(|&ref_id| {
-            get_attr_text(owner_rows.get(ref_id), ACC_ATTR_REF).map(|r| SourceFileRef { r#ref: r })
-        })
-        .collect();
-
-    (!refs.is_empty()).then(|| SourceFileRefList {
-        count: Some(refs.len()),
-        source_file_refs: refs,
-    })
+pub(crate) fn slice_at<'a>(
+    bytes: &'a [u8],
+    off: u64,
+    len: u64,
+    f: &str,
+) -> Result<&'a [u8], String> {
+    let (o, l) = (off as usize, len as usize);
+    bytes
+        .get(o..o + l)
+        .ok_or_else(|| format!("{f}: range error"))
 }
 
 #[inline]
@@ -393,113 +381,32 @@ fn parse_metadata_section(
 }
 
 #[inline]
-pub(crate) fn slice_at<'a>(
-    bytes: &'a [u8],
-    off: u64,
-    len: u64,
-    f: &str,
-) -> Result<&'a [u8], String> {
-    let (offset, length) = (off as usize, len as usize);
-    bytes
-        .get(offset..offset + length)
-        .ok_or_else(|| format!("{f}: range error"))
+fn parse_run_source_file_refs(
+    owner_rows: &OwnerRows,
+    lookup: &ChildrenLookup,
+    run_id: u32,
+) -> Option<SourceFileRefList> {
+    let list_id = lookup
+        .ids_for(run_id, TagId::SourceFileRefList)
+        .first()
+        .copied()
+        .or_else(|| lookup.all_ids(TagId::SourceFileRefList).first().copied())?;
+
+    let refs: Vec<_> = lookup
+        .ids_for(list_id, TagId::SourceFileRef)
+        .iter()
+        .filter_map(|&ref_id| {
+            get_attr_text(owner_rows.get(ref_id), ACC_ATTR_REF).map(|r| SourceFileRef { r#ref: r })
+        })
+        .collect();
+
+    (!refs.is_empty()).then(|| SourceFileRefList {
+        count: Some(refs.len()),
+        source_file_refs: refs,
+    })
 }
 
-#[inline]
-fn dtype_to_layout(dtype: u8) -> Result<(usize, NumericType), String> {
-    match dtype {
-        1 => Ok((8, NumericType::Float64)),
-        2 => Ok((4, NumericType::Float32)),
-        3 => Ok((2, NumericType::Float16)),
-        4 => Ok((2, NumericType::Int16)),
-        5 => Ok((4, NumericType::Int32)),
-        6 => Ok((8, NumericType::Int64)),
-        _ => Err(format!("invalid dtype {dtype}")),
-    }
-}
-
-#[inline]
-fn bytes_to_data(raw: &[u8], numeric_type: NumericType) -> ArrayData {
-    match numeric_type {
-        NumericType::Float64 => ArrayData::F64(to_vec(raw)),
-        NumericType::Float32 => ArrayData::F32(to_vec(raw)),
-        NumericType::Float16 => ArrayData::F16(to_vec(raw)),
-        NumericType::Int64 => ArrayData::I64(to_vec(raw)),
-        NumericType::Int32 => ArrayData::I32(to_vec(raw)),
-        NumericType::Int16 => ArrayData::I16(to_vec(raw)),
-    }
-}
-
-#[inline]
-fn to_vec<T>(raw: &[u8]) -> Vec<T> {
-    let element_count = raw.len() / std::mem::size_of::<T>();
-    let mut out = Vec::with_capacity(element_count);
-    unsafe {
-        out.set_len(element_count);
-        std::ptr::copy_nonoverlapping(raw.as_ptr(), out.as_mut_ptr() as *mut u8, raw.len());
-    }
-    out
-}
-
-struct A0Entry {
-    a1_start: u64,
-    a1_count: u64,
-}
-
-struct A1Ref {
-    array_type: u32,
-    dtype: u8,
-    block_id: u32,
-    element_off: u64,
-    len_elements: u64,
-}
-
-#[inline]
-fn parse_a0(bytes: &[u8], off: u64, len: u64, count: u32) -> Result<Vec<A0Entry>, String> {
-    let raw = slice_at(bytes, off, len, "A0")?;
-    let mut position = 0;
-    let mut out = Vec::with_capacity(count as usize);
-    for _ in 0..count {
-        let a1_start = read_u64_le_at(raw, &mut position, "a1_start")?;
-        let a1_count = read_u64_le_at(raw, &mut position, "a1_count")?;
-        out.push(A0Entry { a1_start, a1_count });
-    }
-    Ok(out)
-}
-
-#[inline]
-fn parse_a1(bytes: &[u8], off: u64, len: u64) -> Result<Vec<A1Ref>, String> {
-    let raw = slice_at(bytes, off, len, "A1")?;
-    let mut position = 0;
-    let entry_count = (len / A1_ENTRY_SIZE) as usize;
-    let mut out = Vec::with_capacity(entry_count);
-    for _ in 0..entry_count {
-        let element_off = read_u64_le_at(raw, &mut position, "e_off")?;
-        let len_elements = read_u64_le_at(raw, &mut position, "len_e")?;
-        let block_id = read_u32_le_at(raw, &mut position, "blk")?;
-        let array_type = read_u32_le_at(raw, &mut position, "type")?;
-        let dtype = take(raw, &mut position, 1, "dt")?[0];
-        let _ = take(raw, &mut position, 7, "pad")?;
-        out.push(A1Ref {
-            array_type,
-            dtype,
-            block_id,
-            element_off,
-            len_elements,
-        });
-    }
-    Ok(out)
-}
-
-#[derive(Clone, Debug)]
-enum ArrayData {
-    F64(Vec<f64>),
-    F32(Vec<f32>),
-    F16(Vec<u16>),
-    I16(Vec<i16>),
-    I32(Vec<i32>),
-    I64(Vec<i64>),
-}
+// ── Metadatum types (decoder-internal) ───────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum MetadatumValue {

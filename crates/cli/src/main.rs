@@ -19,8 +19,7 @@ use regex::Regex;
 use serde::Serialize;
 
 use octo::{
-    b64::{decoder::decode, encode},
-    mzml::{bin_to_mzml::bin_to_mzml, parse_mzml::parse_mzml, structs::*},
+    FileEncoderOutput, b64::{decoder::decode, encoder::encode::encode}, mzml::{bin_to_mzml::bin_to_mzml, parse_mzml::parse_mzml, structs::*}
 };
 
 #[global_allocator]
@@ -133,15 +132,12 @@ struct ConvertArgs {
 
 #[derive(Args)]
 struct ConvertWhich {
-    /// .mzML -> .b64 (default if no mode is given)
     #[arg(long = "mzml-to-b64")]
     mzml_to_b64: bool,
 
-    /// .mzML -> .b32
     #[arg(long = "mzml-to-b32")]
     mzml_to_b32: bool,
 
-    /// .b64/.b32 -> .mzML
     #[arg(long = "b64-to-mzml")]
     b64_to_mzml: bool,
 }
@@ -400,7 +396,7 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
     let ok = Arc::new(AtomicU32::new(0));
     let failed = Arc::new(AtomicU32::new(0));
     let skipped = Arc::new(AtomicU32::new(0));
-    let rewrote_bad_total = Arc::new(AtomicU32::new(0));
+    let fixed_bad_total = Arc::new(AtomicU32::new(0));
     let had_failed = Arc::new(AtomicBool::new(false));
 
     if mzml_to_b64 || mzml_to_b32 {
@@ -443,7 +439,7 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                         let n = done.fetch_add(1, Ordering::Relaxed) + 1;
                         let name = basename(in_path);
                         let _g = print_lock.lock().unwrap_or_else(|e| e.into_inner());
-                        println!("{ANSI_YELLOW}[skip]{ANSI_RESET} [{}/{}] {}", n, total, name);
+                        println!("{ANSI_YELLOW}[skipped]{ANSI_RESET} [{}/{}] {}", n, total, name);
                         let _ = stdout().flush();
                         return;
                     }
@@ -453,7 +449,7 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                 let out_dir = output_root.join(parent_rel);
                 let out_path = out_dir.join(out_name);
 
-                let mut rewrote_bad = false;
+                let mut fixed_bad = false;
 
                 if !cmd.overwrite {
                     if let Ok(m) = fs::metadata(&out_path) {
@@ -471,13 +467,13 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                                 let name = basename(&out_path);
                                 let _g = print_lock.lock().unwrap_or_else(|e| e.into_inner());
                                 println!(
-                                    "{ANSI_YELLOW}[skip]{ANSI_RESET} [{}/{}] {}  input={:.2} MB, output={:.2} MB",
+                                    "{ANSI_YELLOW}[skipped]{ANSI_RESET} [{}/{}] {}  input={:.2} MB, output={:.2} MB",
                                     n, total, name, in_mb, out_mb
                                 );
                                 let _ = stdout().flush();
                                 return;
                             } else {
-                                rewrote_bad = true;
+                                fixed_bad = true;
                             }
                         }
                     }
@@ -536,37 +532,53 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                 let in_mb = bytes.len() as f64 / MB;
                 drop(bytes);
 
-                let encoded = encode(&mzml, cmd.compression_level, f32_compress);
+                let out_path_str = out_path.to_string_lossy();
+                let mut file_output = match FileEncoderOutput::open_for_writing(out_path_str.as_ref()) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        had_failed.store(true, Ordering::Relaxed);
+                        failed.fetch_add(1, Ordering::Relaxed);
+                        let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+                        let name = basename(&out_path);
+                        let _g = print_lock.lock().unwrap_or_else(|e| e.into_inner());
+                        eprintln!(
+                            "{ANSI_RED}[error]{ANSI_RESET} [{}/{}] {}: open file failed: {e}",
+                            n, total, name
+                        );
+                        let _ = stderr().flush();
+                        return;
+                    }
+                };
 
-                drop(mzml);
-
-                if let Err(e) = fs::write(&out_path, &encoded) {
+                if let Err(e) = encode(&mzml, cmd.compression_level, f32_compress, &mut file_output) {
                     had_failed.store(true, Ordering::Relaxed);
                     failed.fetch_add(1, Ordering::Relaxed);
                     let n = done.fetch_add(1, Ordering::Relaxed) + 1;
                     let name = basename(&out_path);
                     let _g = print_lock.lock().unwrap_or_else(|e| e.into_inner());
                     eprintln!(
-                        "{ANSI_RED}[error]{ANSI_RESET} [{}/{}] {}: write failed: {e}",
+                        "{ANSI_RED}[error]{ANSI_RESET} [{}/{}] {}: encode failed: {e}",
                         n, total, name
                     );
                     let _ = stderr().flush();
                     return;
                 }
 
-                let out_mb = encoded.len() as f64 / MB;
-                drop(encoded);
+                drop(mzml);
+                drop(file_output);
+
+                let out_mb = fs::metadata(&out_path).map(|m| m.len() as f64 / MB).unwrap_or(0.0);
 
                 ok.fetch_add(1, Ordering::Relaxed);
-                if rewrote_bad {
-                    rewrote_bad_total.fetch_add(1, Ordering::Relaxed);
+                if fixed_bad {
+                    fixed_bad_total.fetch_add(1, Ordering::Relaxed);
                 }
                 let n = done.fetch_add(1, Ordering::Relaxed) + 1;
 
                 let elapsed_s = t0.elapsed().as_secs_f64();
                 
-                let (tag, color) = if rewrote_bad {
-                    ("[rewrote]", ANSI_BLUE)
+                let (tag, color) = if fixed_bad {
+                    ("[fixed]", ANSI_BLUE)
                 } else {
                     ("[ok]", ANSI_GREEN)
                 };
@@ -585,7 +597,7 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
         let ok = ok.load(Ordering::Relaxed);
         let failed = failed.load(Ordering::Relaxed);
         let skipped = skipped.load(Ordering::Relaxed);
-        let rewrote_bad = rewrote_bad_total.load(Ordering::Relaxed);
+        let fixed_bad = fixed_bad_total.load(Ordering::Relaxed);
 
         let d = t_all.elapsed();
         let total_secs = d.as_secs();
@@ -594,7 +606,7 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
         let s = total_secs % 60;
 
         println!(
-            "converted_ok={ok} converted_failed={failed} converted_skipped={skipped} rewrote_bad={rewrote_bad} total_time={:02}:{:02}:{:02}",
+            "ok={ok} failed={failed} skipped={skipped} fixed={fixed_bad} total_time={:02}:{:02}:{:02}",
             h, m, s
         );
 
@@ -641,7 +653,7 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                         let n = done.fetch_add(1, Ordering::Relaxed) + 1;
                         let name = basename(in_path);
                         let _g = print_lock.lock().unwrap_or_else(|e| e.into_inner());
-                        println!("{ANSI_YELLOW}[skip]{ANSI_RESET} [{}/{}] {}", n, total, name);
+                        println!("{ANSI_YELLOW}[skipped]{ANSI_RESET} [{}/{}] {}", n, total, name);
                         let _ = stdout().flush();
                         return;
                     }
@@ -665,7 +677,7 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                             let name = basename(&out_path);
                             let _g = print_lock.lock().unwrap_or_else(|e| e.into_inner());
                             println!(
-                                "{ANSI_YELLOW}[skip]{ANSI_RESET} [{}/{}] {}  input={:.2} MB, output={:.2} MB",
+                                "{ANSI_YELLOW}[skipped]{ANSI_RESET} [{}/{}] {}  input={:.2} MB, output={:.2} MB",
                                 n, total, name, in_mb, out_mb
                             );
                             let _ = stdout().flush();
@@ -787,7 +799,7 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
         let s = total_secs % 60;
 
         println!(
-            "converted_ok={ok} converted_failed={failed} converted_skipped={skipped} total_time={:02}:{:02}:{:02}",
+            "ok={ok} failed={failed} skipped={skipped} total_time={:02}:{:02}:{:02}",
             h, m, s
         );
 

@@ -3,17 +3,17 @@ use crate::decoder::decode::{Metadatum, MetadatumValue};
 use crate::mzml::schema::TagId;
 use crate::mzml::structs::{Chromatogram, Spectrum};
 
-fn b000_accession(tail: u32) -> String {
-    format!("{CV_REF_ATTR}:{tail:07}")
+fn b000_accession(tail: AccessionTail) -> String {
+    format!("{CV_REF_ATTR}:{:07}", tail.raw())
 }
 
-fn find_by_tail<'a>(xs: &'a [Metadatum], tail: u32) -> Option<&'a Metadatum> {
+fn find_by_tail<'a>(xs: &'a [Metadatum], tail: AccessionTail) -> Option<&'a Metadatum> {
     let acc = b000_accession(tail);
     xs.iter()
         .find(|m| m.accession.as_deref() == Some(acc.as_str()))
 }
 
-fn assert_has_b000_tail(xs: &[Metadatum], tail: u32) {
+fn assert_has_b000_tail(xs: &[Metadatum], tail: AccessionTail) {
     let acc = b000_accession(tail);
     assert!(
         xs.iter()
@@ -22,7 +22,7 @@ fn assert_has_b000_tail(xs: &[Metadatum], tail: u32) {
     );
 }
 
-fn assert_missing_b000_tail(xs: &[Metadatum], tail: u32) {
+fn assert_missing_b000_tail(xs: &[Metadatum], tail: AccessionTail) {
     let acc = b000_accession(tail);
     assert!(
         xs.iter()
@@ -31,13 +31,13 @@ fn assert_missing_b000_tail(xs: &[Metadatum], tail: u32) {
     );
 }
 
-fn assert_text(xs: &[Metadatum], tail: u32, s: &str) {
-    let m = find_by_tail(xs, tail).unwrap_or_else(|| panic!("missing tail={tail}"));
+fn assert_text(xs: &[Metadatum], tail: AccessionTail, s: &str) {
+    let m = find_by_tail(xs, tail).unwrap_or_else(|| panic!("missing tail={:?}", tail));
     assert_eq!(m.value, MetadatumValue::Text(s.to_string()));
 }
 
-fn assert_num(xs: &[Metadatum], tail: u32, n: f64) {
-    let m = find_by_tail(xs, tail).unwrap_or_else(|| panic!("missing tail={tail}"));
+fn assert_num(xs: &[Metadatum], tail: AccessionTail, n: f64) {
+    let m = find_by_tail(xs, tail).unwrap_or_else(|| panic!("missing tail={:?}", tail));
     assert_eq!(m.value, MetadatumValue::Number(n));
 }
 

@@ -24,7 +24,6 @@ const ACC_SUFFIX_TARGET_NAME: &str = "1001225";
 const ACC_SUFFIX_TARGET_START_MZ: &str = "1000502";
 const ACC_SUFFIX_TARGET_END_MZ: &str = "1000747";
 
-#[inline]
 pub(crate) fn parse_scan_settings_list<P: MetadataPolicy>(
     metadata: &[&Metadatum],
     children_lookup: &ChildrenLookup,
@@ -90,7 +89,6 @@ pub(crate) fn parse_scan_settings_list<P: MetadataPolicy>(
     })
 }
 
-#[inline]
 fn parse_scan_settings<'a, P: MetadataPolicy>(
     children_lookup: &ChildrenLookup,
     owner_rows: &'a OwnerRows<'a>,
@@ -133,10 +131,9 @@ fn parse_scan_settings<'a, P: MetadataPolicy>(
     }
 }
 
-#[inline]
-fn parse_source_file_ref_list<'a>(
+fn parse_source_file_ref_list(
     children_lookup: &ChildrenLookup,
-    owner_rows: &'a OwnerRows<'a>,
+    owner_rows: &OwnerRows,
     scan_settings_id: u32,
 ) -> Option<SourceFileRefList> {
     for tag in [TagId::SourceFileRefList, TagId::SourceFileList] {
@@ -173,7 +170,6 @@ fn parse_source_file_ref_list<'a>(
     None
 }
 
-#[inline]
 fn parse_target_list<'a, P: MetadataPolicy>(
     children_lookup: &ChildrenLookup,
     owner_rows: &'a OwnerRows<'a>,
@@ -207,14 +203,12 @@ fn parse_target_list<'a, P: MetadataPolicy>(
     }
 
     let targets = extract_targets_from_cv_params(cv_params);
-
     (!targets.is_empty()).then(|| TargetList {
         count: Some(targets.len()),
         targets,
     })
 }
 
-#[inline]
 fn is_target_accession(accession: &str) -> bool {
     [
         ACC_SUFFIX_TARGET_MZ,
@@ -226,47 +220,55 @@ fn is_target_accession(accession: &str) -> bool {
     .any(|&suffix| accession.ends_with(suffix))
 }
 
-#[inline]
 fn extract_targets_from_cv_params(cv_params: &mut Vec<CvParam>) -> Vec<Target> {
+    let original_len = cv_params.len();
+    let mut retained: Vec<CvParam> = Vec::with_capacity(original_len);
+    let mut target_params: Vec<CvParam> = Vec::new();
+
+    for param in cv_params.drain(..) {
+        if is_target_accession(param.accession.as_deref().unwrap_or("")) {
+            target_params.push(param);
+        } else {
+            retained.push(param);
+        }
+    }
+    *cv_params = retained;
+
+    if target_params.is_empty() {
+        return Vec::new();
+    }
+
     let mut targets: Vec<Target> = Vec::new();
     let mut current_group: Vec<CvParam> = Vec::new();
-    let mut index = 0;
 
-    while index < cv_params.len() {
-        let accession = cv_params[index].accession.as_deref().unwrap_or("");
-        if is_target_accession(accession) {
-            let param = cv_params.remove(index);
-            let is_new_target_group = param
-                .accession
-                .as_deref()
-                .unwrap_or("")
-                .ends_with(ACC_SUFFIX_TARGET_MZ);
+    for param in target_params {
+        let opens_new_target = param
+            .accession
+            .as_deref()
+            .unwrap_or("")
+            .ends_with(ACC_SUFFIX_TARGET_MZ);
 
-            if is_new_target_group && !current_group.is_empty() {
-                targets.push(Target {
-                    referenceable_param_group_refs: Vec::new(),
-                    cv_params: std::mem::take(&mut current_group),
-                    user_params: Vec::new(),
-                });
-            }
-            current_group.push(param);
-        } else {
-            index += 1;
+        if opens_new_target && !current_group.is_empty() {
+            targets.push(make_target(std::mem::take(&mut current_group)));
         }
+        current_group.push(param);
     }
 
     if !current_group.is_empty() {
-        targets.push(Target {
-            referenceable_param_group_refs: Vec::new(),
-            cv_params: current_group,
-            user_params: Vec::new(),
-        });
+        targets.push(make_target(current_group));
     }
 
     targets
 }
 
-#[inline]
+fn make_target(cv_params: Vec<CvParam>) -> Target {
+    Target {
+        referenceable_param_group_refs: Vec::new(),
+        cv_params,
+        user_params: Vec::new(),
+    }
+}
+
 fn parse_target<'a, P: MetadataPolicy>(
     children_lookup: &ChildrenLookup,
     owner_rows: &'a OwnerRows<'a>,
@@ -289,7 +291,6 @@ fn parse_target<'a, P: MetadataPolicy>(
     }
 }
 
-#[inline]
 fn parse_referenceable_param_group_refs(
     children_lookup: &ChildrenLookup,
     owner_rows: &OwnerRows,
@@ -304,4 +305,108 @@ fn parse_referenceable_param_group_refs(
                 .map(|r| ReferenceableParamGroupRef { r#ref: r })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn make_cv_param(accession: &str) -> CvParam {
+        CvParam {
+            cv_ref: Some("MS".to_string()),
+            accession: Some(accession.to_string()),
+            name: String::new(),
+            value: None,
+            unit_cv_ref: None,
+            unit_name: None,
+            unit_accession: None,
+        }
+    }
+
+    #[test]
+    fn is_target_accession_recognises_all_target_suffixes() {
+        assert!(is_target_accession(&format!("MS:{ACC_SUFFIX_TARGET_MZ}")));
+        assert!(is_target_accession(&format!("MS:{ACC_SUFFIX_TARGET_NAME}")));
+        assert!(is_target_accession(&format!(
+            "MS:{ACC_SUFFIX_TARGET_START_MZ}"
+        )));
+        assert!(is_target_accession(&format!(
+            "MS:{ACC_SUFFIX_TARGET_END_MZ}"
+        )));
+    }
+
+    #[test]
+    fn is_target_accession_rejects_unrelated_accession() {
+        assert!(!is_target_accession("MS:1000511"));
+        assert!(!is_target_accession(""));
+        assert!(!is_target_accession("MS:1000514"));
+    }
+
+    #[test]
+    fn extract_targets_from_cv_params_removes_target_params_from_input() {
+        let mut params = vec![
+            make_cv_param("MS:1000511"),
+            make_cv_param(&format!("MS:{ACC_SUFFIX_TARGET_MZ}")),
+            make_cv_param("MS:1000515"),
+            make_cv_param(&format!("MS:{ACC_SUFFIX_TARGET_NAME}")),
+        ];
+
+        let targets = extract_targets_from_cv_params(&mut params);
+
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].accession.as_deref(), Some("MS:1000511"));
+        assert_eq!(params[1].accession.as_deref(), Some("MS:1000515"));
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].cv_params.len(), 2);
+    }
+
+    #[test]
+    fn extract_targets_from_cv_params_groups_by_target_mz_boundary() {
+        let mut params = vec![
+            make_cv_param(&format!("MS:{ACC_SUFFIX_TARGET_MZ}")),
+            make_cv_param(&format!("MS:{ACC_SUFFIX_TARGET_NAME}")),
+            make_cv_param(&format!("MS:{ACC_SUFFIX_TARGET_MZ}")),
+            make_cv_param(&format!("MS:{ACC_SUFFIX_TARGET_END_MZ}")),
+        ];
+
+        let targets = extract_targets_from_cv_params(&mut params);
+
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].cv_params.len(), 2);
+        assert_eq!(targets[1].cv_params.len(), 2);
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn extract_targets_from_cv_params_returns_empty_when_no_target_params_present() {
+        let mut params = vec![make_cv_param("MS:1000511"), make_cv_param("MS:1000515")];
+        let original_len = params.len();
+        let targets = extract_targets_from_cv_params(&mut params);
+
+        assert!(targets.is_empty());
+        assert_eq!(params.len(), original_len);
+    }
+
+    #[test]
+    fn extract_targets_from_cv_params_handles_empty_input() {
+        let mut params: Vec<CvParam> = Vec::new();
+        let targets = extract_targets_from_cv_params(&mut params);
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn extract_targets_from_cv_params_single_target_no_mz_boundary() {
+        let mut params = vec![make_cv_param(&format!("MS:{ACC_SUFFIX_TARGET_NAME}"))];
+        let targets = extract_targets_from_cv_params(&mut params);
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].cv_params.len(), 1);
+    }
+
+    #[test]
+    fn make_target_produces_target_with_empty_refs_and_user_params() {
+        let cv_params = vec![make_cv_param("MS:1000827")];
+        let target = make_target(cv_params);
+        assert_eq!(target.cv_params.len(), 1);
+        assert!(target.referenceable_param_group_refs.is_empty());
+        assert!(target.user_params.is_empty());
+    }
 }
