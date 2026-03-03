@@ -19,7 +19,7 @@ use regex::Regex;
 use serde::Serialize;
 
 use octo::{
-    FileEncoderOutput, b64::{decoder::decode, encoder::encode::encode}, mzml::{bin_to_mzml::bin_to_mzml, parse_mzml::parse_mzml, structs::*}
+    b64::{decoder::decode, encoder::encode::encode, FileEncoderOutput}, mzml::{bin_to_mzml::bin_to_mzml, parse_mzml::parse_mzml, structs::*}
 };
 
 #[global_allocator]
@@ -550,7 +550,7 @@ fn convert(cmd: ConvertArgs) -> Result<(), String> {
                     }
                 };
 
-                if let Err(e) = encode(&mzml, cmd.compression_level, f32_compress, &mut file_output) {
+                if let Err(e) = encode(&mzml, cmd.compression_level, f32_compress, octo::encoder::encode::WritingMode::Streaming, &mut file_output) {
                     had_failed.store(true, Ordering::Relaxed);
                     failed.fetch_add(1, Ordering::Relaxed);
                     let n = done.fetch_add(1, Ordering::Relaxed) + 1;

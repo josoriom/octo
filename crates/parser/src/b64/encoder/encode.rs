@@ -34,6 +34,12 @@ const FILE_DTYPE_I16: u8 = 4;
 const FILE_DTYPE_I32: u8 = 5;
 const FILE_DTYPE_I64: u8 = 6;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WritingMode {
+    Memory,
+    Streaming,
+}
+
 pub struct Encoder<'o> {
     output: &'o mut dyn EncoderOutput,
     config: EncodingConfig,
@@ -85,10 +91,20 @@ impl<'o> Encoder<'o> {
             &global_counts,
             self.config.compression_level,
         );
-        let spec_arrays = pack_arrays_into_memory(spectra, self.config, spec_policy)?;
-        let chrom_arrays = pack_arrays_into_memory(chroms, self.config, chrom_policy)?;
 
         self.output.write_bytes(&[0u8; HEADER_SIZE])?;
+
+        let (spec_arrays, chrom_arrays) = match self.config.writing_mode {
+            WritingMode::Streaming => (
+                pack_arrays_streaming(spectra, self.config, spec_policy, self.output)?,
+                pack_arrays_streaming(chroms, self.config, chrom_policy, self.output)?,
+            ),
+            WritingMode::Memory => (
+                pack_arrays_into_memory(spectra, self.config, spec_policy, self.output)?,
+                pack_arrays_into_memory(chroms, self.config, chrom_policy, self.output)?,
+            ),
+        };
+
         let offsets = self.write_all_sections(&spec_arrays, &chrom_arrays, &compressed)?;
         self.output.write_bytes(&FILE_TRAILER)?;
 
@@ -138,8 +154,8 @@ impl<'o> Encoder<'o> {
             offset_spec_meta: write_aligned_section(self.output, &m.spectrum_bytes)?,
             offset_chrom_meta: write_aligned_section(self.output, &m.chromatogram_bytes)?,
             offset_global_meta: write_aligned_section(self.output, &m.global_bytes)?,
-            offset_packed_spectra: write_aligned_section(self.output, &s.container_bytes)?,
-            offset_packed_chroms: write_aligned_section(self.output, &c.container_bytes)?,
+            offset_packed_spectra: s.container_offset,
+            offset_packed_chroms: c.container_offset,
         })
     }
 
@@ -205,6 +221,7 @@ pub fn encode(
     mzml: &MzML,
     compression_level: u8,
     force_f32: bool,
+    writing_mode: WritingMode,
     output: &mut dyn EncoderOutput,
 ) -> Result<(), String> {
     assert!(
@@ -214,6 +231,7 @@ pub fn encode(
     let config = EncodingConfig {
         compression_level,
         force_f32,
+        writing_mode,
     };
     Encoder::new(output, config).encode(mzml)
 }
@@ -222,6 +240,7 @@ pub fn encode(
 pub struct EncodingConfig {
     pub compression_level: u8,
     pub force_f32: bool,
+    pub writing_mode: WritingMode,
 }
 
 impl EncodingConfig {
@@ -437,7 +456,7 @@ fn write_arrayref_entry(
 
 struct PackedArraySection {
     block_count: u32,
-    container_bytes: Vec<u8>,
+    container_offset: u64,
     container_total_bytes: u64,
     index_entries_bytes: Vec<u8>,
     array_refs_bytes: Vec<u8>,
@@ -462,6 +481,7 @@ fn pack_arrays_into_memory<T: HasBinaryDataArrayList>(
     items: &[T],
     config: EncodingConfig,
     policy: ArrayPolicy,
+    output: &mut dyn EncoderOutput,
 ) -> Result<PackedArraySection, String> {
     let mut container_bytes = Vec::new();
     let mut index_entries_bytes = Vec::new();
@@ -488,15 +508,12 @@ fn pack_arrays_into_memory<T: HasBinaryDataArrayList>(
                 if data.is_empty() {
                     continue;
                 }
-
                 let acc = array_type_accession_from_binary_data_array(bda);
                 if acc != 0 {
                     seen_array_type_accessions.insert(acc);
                 }
-
                 let dtype = resolve_array_dtype(bda, data, policy.should_force_f32(acc));
                 let elem_bytes = element_byte_size_for_dtype(dtype);
-
                 let (block_id, elem_offset) = container_builder.add_item_to_box(
                     data.element_count() * elem_bytes,
                     elem_bytes,
@@ -519,9 +536,82 @@ fn pack_arrays_into_memory<T: HasBinaryDataArrayList>(
     }
 
     let (block_count, container_total_bytes) = container_builder.finish()?;
+    let container_offset = write_aligned_section(output, &container_bytes)?;
+
     Ok(PackedArraySection {
         block_count,
-        container_bytes,
+        container_offset,
+        container_total_bytes,
+        index_entries_bytes,
+        array_refs_bytes,
+        seen_array_type_accessions,
+    })
+}
+
+fn pack_arrays_streaming<T: HasBinaryDataArrayList>(
+    items: &[T],
+    config: EncodingConfig,
+    policy: ArrayPolicy,
+    output: &mut dyn EncoderOutput,
+) -> Result<PackedArraySection, String> {
+    let mut index_entries_bytes = Vec::new();
+    let mut array_refs_bytes = Vec::new();
+    let mut seen_array_type_accessions: HashSet<u32> = HashSet::new();
+    let mut arrayref_cursor: u64 = 0;
+
+    let container_offset = write_aligned_section(output, &[])?;
+
+    let mut container_builder = ContainerBuilder::new(
+        output,
+        TARGET_BLOCK_UNCOMPRESSED_BYTES,
+        config.compression_mode(),
+        config.filter_type(),
+    );
+
+    for item in items {
+        let arrayref_start = arrayref_cursor;
+        let mut arrayref_count: u64 = 0;
+
+        if let Some(list) = item.binary_data_array_list() {
+            for bda in &list.binary_data_arrays {
+                let Some(data) = array_data_from_binary_data_array(bda) else {
+                    continue;
+                };
+                if data.is_empty() {
+                    continue;
+                }
+                let acc = array_type_accession_from_binary_data_array(bda);
+                if acc != 0 {
+                    seen_array_type_accessions.insert(acc);
+                }
+                let dtype = resolve_array_dtype(bda, data, policy.should_force_f32(acc));
+                let elem_bytes = element_byte_size_for_dtype(dtype);
+                let (block_id, elem_offset) = container_builder.add_item_to_box(
+                    data.element_count() * elem_bytes,
+                    elem_bytes,
+                    |buf| write_array_data(buf, data, dtype),
+                )?;
+                write_arrayref_entry(
+                    &mut array_refs_bytes,
+                    elem_offset,
+                    data.element_count() as u64,
+                    block_id,
+                    acc,
+                    dtype,
+                );
+                arrayref_cursor += 1;
+                arrayref_count += 1;
+            }
+        }
+        write_u64_le(&mut index_entries_bytes, arrayref_start);
+        write_u64_le(&mut index_entries_bytes, arrayref_count);
+    }
+
+    let (block_count, container_total_bytes) = container_builder.finish()?;
+
+    Ok(PackedArraySection {
+        block_count,
+        container_offset,
         container_total_bytes,
         index_entries_bytes,
         array_refs_bytes,
@@ -547,14 +637,34 @@ mod tests {
             EncodingConfig {
                 compression_level: 0,
                 force_f32: false,
+                writing_mode: WritingMode::Memory,
             },
         )
         .encode(&mzml)
         .unwrap();
 
-        encode(&mzml, 0, false, &mut via_free_fn).unwrap();
+        encode(&mzml, 0, false, WritingMode::Memory, &mut via_free_fn).unwrap();
 
         assert_eq!(via_struct, via_free_fn);
+    }
+
+    #[test]
+    fn memory_and_streaming_modes_produce_identical_output() {
+        let mzml = MzML::default();
+        let mut memory_output = Vec::new();
+        let mut streaming_output = Vec::new();
+
+        encode(&mzml, 0, false, WritingMode::Memory, &mut memory_output).unwrap();
+        encode(
+            &mzml,
+            0,
+            false,
+            WritingMode::Streaming,
+            &mut streaming_output,
+        )
+        .unwrap();
+
+        assert_eq!(memory_output, streaming_output);
     }
 
     #[test]
@@ -566,6 +676,7 @@ mod tests {
             EncodingConfig {
                 compression_level: 0,
                 force_f32: false,
+                writing_mode: WritingMode::Streaming,
             },
         )
         .encode(&mzml)
@@ -581,6 +692,7 @@ mod tests {
         let config = EncodingConfig {
             compression_level: 3,
             force_f32: true,
+            writing_mode: WritingMode::Streaming,
         };
         let sp = config.spectrum_array_policy();
         assert_eq!(sp.x_array_accession, ACCESSION_MZ_ARRAY);
@@ -597,6 +709,7 @@ mod tests {
         let config = EncodingConfig {
             compression_level: 0,
             force_f32: false,
+            writing_mode: WritingMode::Streaming,
         };
         assert!(!config.compression_is_enabled());
         assert_eq!(config.codec_id(), 0);
@@ -609,6 +722,7 @@ mod tests {
         let config = EncodingConfig {
             compression_level: 3,
             force_f32: false,
+            writing_mode: WritingMode::Streaming,
         };
         assert!(config.compression_is_enabled());
         assert_eq!(config.codec_id(), 1);
@@ -625,6 +739,7 @@ mod tests {
             EncodingConfig {
                 compression_level: 0,
                 force_f32: false,
+                writing_mode: WritingMode::Streaming,
             },
         )
         .encode(&mzml)

@@ -106,13 +106,12 @@ fn check_header() {
             .unwrap_or(u64::MAX)
             <= header.off_global_meta
     );
-    println!("{:#?}", header);
     assert!(
         header
-            .off_global_meta
-            .checked_add(header.len_global_meta)
+            .off_container_chrom
+            .checked_add(header.len_container_chrom)
             .unwrap_or(u64::MAX)
-            <= header.off_container_spect
+            <= header.off_spec_entries
     );
     assert!(
         header
